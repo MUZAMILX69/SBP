@@ -131,15 +131,7 @@ function printHTML(title, bodyHtml) {
   document.body.appendChild(iframe);
   const doc = iframe.contentWindow.document;
   doc.open();
-  doc.write(`<!DOCTYPE html><html><head><title>${esc(title)}</title><style>
-  *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#23261F;padding:24px}
-  h1{font-size:17px;text-transform:uppercase;margin:0 0 4px}.meta{font-size:11px;color:#666;margin-bottom:18px}
-  table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px}
-  th,td{padding:5px 7px;border-bottom:1px solid #ccc;text-align:left}
-  th{font-size:9px;text-transform:uppercase;color:#666;border-bottom:1.5px solid #23261F}
-  tfoot td{font-weight:bold;border-top:1.5px solid #23261F;border-bottom:none}.tag{font-family:monospace}
-  tr.hot td{background:#fdf1d7}tr.over td{background:#fdeaea}
-  </style></head><body><h1>${esc(title)}</h1><div class="meta">Printed ${esc(new Date().toLocaleString("en-GB"))}</div>${bodyHtml}</body></html>`);
+  doc.write(`<!DOCTYPE html><html><head><title>${esc(title)}</title><style>*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#23261F;padding:24px}h1{font-size:17px;text-transform:uppercase;margin:0 0 4px}.meta{font-size:11px;color:#666;margin-bottom:18px}table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px}th,td{padding:5px 7px;border-bottom:1px solid #ccc;text-align:left}th{font-size:9px;text-transform:uppercase;color:#666;border-bottom:1.5px solid #23261F}tfoot td{font-weight:bold;border-top:1.5px solid #23261F;border-bottom:none}.tag{font-family:monospace}tr.hot td{background:#fdf1d7}tr.over td{background:#fdeaea}</style></head><body><h1>${esc(title)}</h1><div class="meta">Printed ${esc(new Date().toLocaleString("en-GB"))}</div>${bodyHtml}</body></html>`);
   doc.close();
   setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 1000); }, 250);
 }
@@ -163,8 +155,10 @@ const NAV_GROUPS = [
     { id: "pu-edit", label: "Edit", view: "pu-edit" },
   ] },
   { id: "udhaar", label: "Udhaar", icon: PackageCheck, children: [
+    { id: "ud-entries", label: "Entries", view: "ud-entries" },
     { id: "ud-table", label: "Udhaar Table", view: "ud-table" },
     { id: "ud-report", label: "Report", view: "ud-report" },
+    { id: "ud-edit", label: "Edit", view: "ud-edit" },
   ] },
   { id: "stock", label: "Stock Reports", icon: Truck, children: [
     { id: "stock-main", label: "PKT Stock", view: "stock" },
@@ -175,46 +169,25 @@ const VIEW_TITLES = {
   dashboard: "Dashboard", "m-brands": "Brands", "m-suppliers": "Suppliers", "m-desc": "PKT Description Master",
   "in-entries": "PKT In (Stock In)", "in-report": "PKT In Report", "in-edit": "PKT In — Edit",
   "pu-entries": "PKT Purchases", "pu-report": "Purchase Report", "pu-edit": "Purchases — Edit",
-  "ud-table": "PKT Udhaar", "ud-report": "Udhaar Report", stock: "PKT Stock Report", "salebase-stock": "Sale Base Stock", team: "Team & access",
+  "ud-entries": "PKT Udhaar — Entries", "ud-table": "PKT Udhaar", "ud-report": "Udhaar Report", "ud-edit": "Udhaar — Edit",
+  stock: "PKT Stock Report", "salebase-stock": "Sale Base Stock", team: "Team & access",
 };
 const groupForView = (view) => { const g = NAV_GROUPS.find((g) => g.children && g.children.some((c) => c.view === view)); return g ? g.id : null; };
 
 /* ================= shell ================= */
 function Rail({ view, setView, isAdmin, onSignOut, permissions }) {
   const activeGroup = view === "dashboard" ? "dashboard" : view === "team" ? "team" : groupForView(view);
-  
-  // Permission mapping
-  const groupPermMap = {
-    "dashboard": "dashboard",
-    "masters": "masters",
-    "pkt-in": "pktIn",
-    "purchases": "purchases",
-    "udhaar": "udhaar",
-    "stock": "stock"
-  };
-
-  const canViewModule = (moduleId) => {
-    if (isAdmin) return true;
-    return permissions?.[moduleId]?.view === true;
-  };
-
-  const filteredGroups = NAV_GROUPS.filter(g => {
-    const permKey = groupPermMap[g.id];
-    return canViewModule(permKey);
-  });
-
+  const groupPermMap = { dashboard: "dashboard", masters: "masters", "pkt-in": "pktIn", purchases: "purchases", udhaar: "udhaar", stock: "stock" };
+  const canViewModule = (moduleId) => { if (isAdmin) return true; return permissions?.[moduleId]?.view === true; };
+  const filteredGroups = NAV_GROUPS.filter((g) => canViewModule(groupPermMap[g.id]));
   const groups = isAdmin ? [...filteredGroups, { id: "team", label: "Team & access", icon: Users, view: "team" }] : filteredGroups;
-
   const [openId, setOpenId] = useState(activeGroup);
   useEffect(() => { if (activeGroup) setOpenId(activeGroup); }, [activeGroup]);
-  
-  // Safety redirect if current view is hidden
   useEffect(() => {
-    if (!groups.some(g => g.id === activeGroup || (g.children && g.children.some(c => c.view === view)))) {
-       if(view !== 'dashboard') setView('dashboard');
+    if (!groups.some((g) => g.id === activeGroup || (g.children && g.children.some((c) => c.view === view)))) {
+      if (view !== "dashboard") setView("dashboard");
     }
-  }, [groups, view, activeGroup]);
-
+  }, [groups, view, activeGroup]); // eslint-disable-line
   const onGroup = (g) => {
     if (!g.children) { setView(g.view); return; }
     const willOpen = openId !== g.id;
@@ -287,8 +260,8 @@ function Modal({ title, onClose, children }) {
   );
 }
 
-/* ================= description picker (1-click search) ================= */
-function DescPicker({ ctx, value, onChange, placeholder }) {
+/* ================= description picker (1-click search + programmatic focus) ================= */
+function DescPicker({ ctx, value, onChange, placeholder, apiRef }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [rect, setRect] = useState(null);
@@ -299,6 +272,7 @@ function DescPicker({ ctx, value, onChange, placeholder }) {
   const q = query.trim().toLowerCase();
   const list = ctx.descriptions.filter((d) => d.active !== false && (!q || ctx.descLabel(d).toLowerCase().includes(q)));
   const place = () => { if (boxRef.current) setRect(boxRef.current.getBoundingClientRect()); };
+  useEffect(() => { if (apiRef) { apiRef.current = () => { setOpen(true); setQuery(""); }; } return () => { if (apiRef) apiRef.current = null; }; }, [apiRef]);
   useEffect(() => { if (open) place(); }, [open]);
   useEffect(() => { if (open && rect && searchRef.current) searchRef.current.focus(); }, [open, rect]);
   useEffect(() => {
@@ -319,28 +293,26 @@ function DescPicker({ ctx, value, onChange, placeholder }) {
   }
   return (
     <div className="desc-picker" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) { setOpen(false); setQuery(""); } }}>
-      <style>{`
-        .desc-picker{position:relative;width:100%;min-width:0}
-        .desc-picker .dp-box{display:flex;align-items:center;gap:8px;width:100%;background:#fff;border:1px solid #e3e9f0;border-radius:9px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#17324d;cursor:pointer;text-align:left}
-        .desc-picker .dp-box:hover{border-color:#4318FF}
-        .desc-picker .dp-box>svg{color:#7b8ba3;flex-shrink:0}
-        .desc-picker .dp-val{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
-        .desc-picker .dp-ph{flex:1;color:#9aa7b8;font-weight:500}
-        .desc-picker .dp-clear{border:none;background:transparent;color:#7b8ba3;cursor:pointer;padding:2px;border-radius:5px;display:inline-flex}
-        .desc-picker .dp-clear:hover{color:#e5484d;background:#fdeaea}
-        .desc-picker .dp-panel{background:#fff;border:1px solid #dfe7ef;border-radius:12px;box-shadow:0 14px 40px rgba(23,50,77,.25);overflow:hidden;display:flex;flex-direction:column}
-        .desc-picker .dp-search{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #e3e9f0;flex-shrink:0}
-        .desc-picker .dp-search svg{color:#7b8ba3;flex-shrink:0}
-        .desc-picker .dp-search input{border:none;background:transparent;width:100%;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#17324d}
-        .desc-picker .dp-search input:focus{outline:none}
-        .desc-picker .dp-list{overflow-y:auto;flex:1}
-        .desc-picker .dp-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;border-top:1px solid #eef2f6;background:#fff;cursor:pointer;text-align:left}
-        .desc-picker .dp-opt:first-child{border-top:none}
-        .desc-picker .dp-opt:hover{background:#eef0ff}
-        .desc-picker .dp-name{font-size:12.5px;font-weight:700;color:#17324d}
-        .desc-picker .dp-badge{font-family:'JetBrains Mono',monospace;font-size:10px;color:#7551FF;background:#eef0ff;border-radius:999px;padding:3px 9px;white-space:nowrap}
-        .desc-picker .dp-empty{padding:12px;font-size:12px;color:#7b8ba3;font-weight:600}
-      `}</style>
+      <style>{`.desc-picker{position:relative;width:100%;min-width:0}
+.desc-picker .dp-box{display:flex;align-items:center;gap:8px;width:100%;background:#fff;border:1px solid #e3e9f0;border-radius:9px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#17324d;cursor:pointer;text-align:left}
+.desc-picker .dp-box:hover{border-color:#4318FF}
+.desc-picker .dp-box>svg{color:#7b8ba3;flex-shrink:0}
+.desc-picker .dp-val{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+.desc-picker .dp-ph{flex:1;color:#9aa7b8;font-weight:500}
+.desc-picker .dp-clear{border:none;background:transparent;color:#7b8ba3;cursor:pointer;padding:2px;border-radius:5px;display:inline-flex}
+.desc-picker .dp-clear:hover{color:#e5484d;background:#fdeaea}
+.desc-picker .dp-panel{background:#fff;border:1px solid #dfe7ef;border-radius:12px;box-shadow:0 14px 40px rgba(23,50,77,.25);overflow:hidden;display:flex;flex-direction:column}
+.desc-picker .dp-search{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid #e3e9f0;flex-shrink:0}
+.desc-picker .dp-search svg{color:#7b8ba3;flex-shrink:0}
+.desc-picker .dp-search input{border:none;background:transparent;width:100%;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#17324d}
+.desc-picker .dp-search input:focus{outline:none}
+.desc-picker .dp-list{overflow-y:auto;flex:1}
+.desc-picker .dp-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;border-top:1px solid #eef2f6;background:#fff;cursor:pointer;text-align:left}
+.desc-picker .dp-opt:first-child{border-top:none}
+.desc-picker .dp-opt:hover{background:#eef0ff}
+.desc-picker .dp-name{font-size:12.5px;font-weight:700;color:#17324d}
+.desc-picker .dp-badge{font-family:'JetBrains Mono',monospace;font-size:10px;color:#7551FF;background:#eef0ff;border-radius:999px;padding:3px 9px;white-space:nowrap}
+.desc-picker .dp-empty{padding:12px;font-size:12px;color:#7b8ba3;font-weight:600}`}</style>
       <button ref={boxRef} type="button" className="dp-box" onClick={() => setOpen((o) => !o)}>
         <Search size={13} />
         <span className={label ? "dp-val" : "dp-ph"}>{label || placeholder || "Type to search item…"}</span>
@@ -505,12 +477,13 @@ function DescriptionsEditor({ ctx, canManage, isAdmin }) {
   );
 }
 
-/* ================= entry builder (invoice style) ================= */
+/* ================= line builders (auto-focus next item) ================= */
 function PktLineBuilder({ ctx, mode, onAdd }) {
   const [descriptionId, setDescriptionId] = useState("");
   const [plts, setPlts] = useState("");
   const [loose, setLoose] = useState("");
   const [rate, setRate] = useState("");
+  const descApi = React.useRef(null);
   const d = ctx.descOf(descriptionId);
   const perPlt = d ? N(d.pktsPerPlt) : 0;
   const wpp = d ? ctx.pktWeight(d) : 0;
@@ -521,12 +494,13 @@ function PktLineBuilder({ ctx, mode, onAdd }) {
   const add = () => {
     if (!ok) return;
     onAdd({ descriptionId, plts: N(plts), loose: N(loose), total, weight, rate: N(rate), amount });
-    setPlts(""); setLoose(""); setRate("");
+    setPlts(""); setLoose(""); setDescriptionId("");
+    setTimeout(() => { if (descApi.current) descApi.current(); }, 30);
   };
   return (
     <div className="builder">
       <div className="builder-row">
-        <div className="builder-desc"><DescPicker ctx={ctx} value={descriptionId} onChange={setDescriptionId} /></div>
+        <div className="builder-desc"><DescPicker ctx={ctx} value={descriptionId} onChange={setDescriptionId} apiRef={descApi} /></div>
         <Field label="PLTs"><input type="number" value={plts} onChange={(e) => setPlts(e.target.value)} placeholder="0" /></Field>
         <Field label="Loose pkts"><input type="number" value={loose} onChange={(e) => setLoose(e.target.value)} placeholder="0" /></Field>
         {mode === "purchase" && <Field label="Rate /kg"><input type="number" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0" /></Field>}
@@ -537,6 +511,39 @@ function PktLineBuilder({ ctx, mode, onAdd }) {
         <span className="b-chip">Total PKTs<b>{num(total, 0)}</b></span>
         <span className="b-chip">Weight<b>{num(weight)} kg</b></span>
         {mode === "purchase" && <span className="b-chip">Amount<b>{money(amount)}</b></span>}
+      </div>
+    </div>
+  );
+}
+function UdhaarLineBuilder({ ctx, onAdd }) {
+  const [descriptionId, setDescriptionId] = useState("");
+  const [pkts, setPkts] = useState("");
+  const [note, setNote] = useState("");
+  const descApi = React.useRef(null);
+  const d = ctx.descOf(descriptionId);
+  const perPlt = d ? N(d.pktsPerPlt) : 0;
+  const wpp = d ? ctx.pktWeight(d) : 0;
+  const p = N(pkts);
+  const weight = p * wpp;
+  const ok = descriptionId && p > 0;
+  const add = () => {
+    if (!ok) return;
+    onAdd({ descriptionId, pkts: p, weight, note: note.trim() });
+    setPkts(""); setNote(""); setDescriptionId("");
+    setTimeout(() => { if (descApi.current) descApi.current(); }, 30);
+  };
+  return (
+    <div className="builder">
+      <div className="builder-row">
+        <div className="builder-desc"><DescPicker ctx={ctx} value={descriptionId} onChange={setDescriptionId} apiRef={descApi} /></div>
+        <Field label="PKTs"><input type="number" value={pkts} onChange={(e) => setPkts(e.target.value)} placeholder="0" /></Field>
+        <Field label="Item note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="optional" /></Field>
+        <button className="btn primary builder-add" onClick={add} disabled={!ok}><Plus size={14} /> Add item</button>
+      </div>
+      <div className="builder-chips">
+        <span className="b-chip">Pkts/PLT<b>{num(perPlt, 0)}</b></span>
+        <span className="b-chip">= PLTs<b>{num(perPlt ? p / perPlt : 0, 2)}</b></span>
+        <span className="b-chip">Weight<b>{num(weight)} kg</b></span>
       </div>
     </div>
   );
@@ -597,6 +604,7 @@ function PktInAddForm({ ctx }) {
         <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         <Field label="Supplier *"><select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
       </div>
+      <div className="info-banner" style={{ margin: 0 }}>Fast entry: pick item → PLTs → <b>Add line</b> → cursor jumps back to the item search for the next line.</div>
       <PktLineBuilder ctx={ctx} mode="in" onAdd={(l) => setLines([...lines, l])} />
       <LinesList ctx={ctx} lines={lines} setLines={setLines} mode="in" />
       <div className="form-actions">
@@ -861,7 +869,7 @@ function PurchaseAddForm({ ctx }) {
     <div className="entry2">
       <div className="entry2-head">
         <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        <div className="info-banner" style={{ flex: 2, margin: 0 }}>Amount = weight × rate/kg · purchase subtracts from PKT In · saves clear udhaar first (delete returns it).</div>
+        <div className="info-banner" style={{ flex: 2, margin: 0 }}>Amount = weight × rate/kg · purchase subtracts from PKT In · saves clear udhaar first (delete returns it) · <b>Add line</b> jumps cursor back to item search.</div>
       </div>
       <PktLineBuilder ctx={ctx} mode="purchase" onAdd={(l) => setLines([...lines, l])} />
       <LinesList ctx={ctx} lines={lines} setLines={setLines} mode="purchase" />
@@ -1126,57 +1134,358 @@ function PurchaseReportView({ ctx }) {
 }
 
 /* ================= UDHAAR ================= */
+function UdhaarAddForm({ ctx }) {
+  const { persist, udhaar, udLabel, stockMap, descriptions } = ctx;
+  const [date, setDate] = useState(todayISO());
+  const [note, setNote] = useState("");
+  const [lines, setLines] = useState([]);
+  const [last, setLast] = useState(null);
+  const [err, setErr] = useState("");
+  const balFor = (id) => udhaar.filter((u) => u.descriptionId === id).reduce((a, u) => a + N(u.totalPkts), 0);
+  const pendingFor = (id) => lines.filter((l) => l.descriptionId === id).reduce((a, l) => a + l.pkts, 0);
+  const addLine = (l) => {
+    const godown = stockMap.get(l.descriptionId)?.godownPkts || 0;
+    const after = balFor(l.descriptionId) + pendingFor(l.descriptionId) + l.pkts;
+    if (after > godown) { setErr(`${ctx.descLabel(ctx.descOf(l.descriptionId))}: udhaar would reach ${num(after, 0)} pkts but godown is only ${num(godown, 0)} pkts.`); return; }
+    setErr("");
+    setLines([...lines, l]);
+  };
+  const save = () => {
+    if (!date || !lines.length) return;
+    const batchId = uid();
+    const recs = lines.map((l) => {
+      const dd = ctx.descOf(l.descriptionId);
+      const pp = N(dd.pktsPerPlt);
+      return {
+        id: uid(), batchId, date, partyName: null, reference: note.trim(),
+        descriptionId: dd.id, descriptionSnapshot: ctx.descLabel(dd), pktsPerPltSnapshot: pp, weightPerPktSnapshot: ctx.pktWeight(dd),
+        plts: pp ? Math.floor(l.pkts / pp) : 0, loosePkts: pp ? l.pkts % pp : l.pkts, totalPkts: l.pkts, weight: l.weight, note: l.note,
+      };
+    });
+    persist.udhaar([...udhaar, ...recs]);
+    setLast(batchId); setLines([]); setNote("");
+  };
+  const tPk = lines.reduce((a, l) => a + l.pkts, 0), tW = lines.reduce((a, l) => a + l.weight, 0);
+  if (descriptions.length === 0) return <EmptyRow>Add a description first.</EmptyRow>;
+  return (
+    <div className="entry2">
+      <div className="entry2-head">
+        <Field label="Date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Note (entry level)"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. udhaar to ABC shop" /></Field>
+      </div>
+      <div className="info-banner" style={{ margin: 0 }}>Udhaar is entered in <b>PKTs</b> per item with an optional item note · <b>Add item</b> jumps cursor back to the item search · godown cap is checked.</div>
+      <UdhaarLineBuilder ctx={ctx} onAdd={addLine} />
+      {err && <div className="notice-warn">{err}</div>}
+      <div className="lines-box">
+        <div className="lines-head">Items in this udhaar entry ({lines.length})</div>
+        {lines.length === 0 ? <EmptyRow>No items yet — pick an item above and press “Add item”.</EmptyRow> : (
+          <div className="list panel-list">
+            {lines.map((l, i) => (
+              <div className="row" key={i}>
+                <div>
+                  <div className="row-title">{ctx.descLabel(ctx.descOf(l.descriptionId))}</div>
+                  <div className="row-sub">{num(l.pkts, 0)} pkts · {num(l.weight)} kg{l.note ? ` · ${l.note}` : ""}</div>
+                </div>
+                <div className="row-actions"><button className="icon-btn" onClick={() => setLines(lines.filter((_, x) => x !== i))}><Trash2 size={15} /></button></div>
+              </div>
+            ))}
+          </div>
+        )}
+        {lines.length > 0 && (
+          <div className="lines-total">
+            <span>{lines.length} item(s)</span>
+            <span className="mono">{num(tPk, 0)} pkts</span>
+            <span className="mono">{num(tW)} kg</span>
+          </div>
+        )}
+      </div>
+      <div className="form-actions">
+        <span className="computed">{last ? <>Saved under <b>{udLabel.get(last)}</b></> : ""}</span>
+        <button className="btn primary" onClick={save} disabled={!lines.length || !date}>Save udhaar entry</button>
+      </div>
+    </div>
+  );
+}
+function useUdhaarBatches(ctx) {
+  const { udhaar, udLabel } = ctx;
+  return useMemo(() => {
+    const m = new Map();
+    udhaar.forEach((r) => { const k = r.batchId || r.id; if (!m.has(k)) m.set(k, []); m.get(k).push(r); });
+    return [...m.entries()].map(([key, lines]) => ({
+      key, label: udLabel.get(key), date: lines[0].date, note: lines[0].reference || "", lines,
+      pkts: lines.reduce((a, l) => a + N(l.totalPkts), 0),
+      weight: lines.reduce((a, l) => a + N(l.weight), 0),
+    })).sort((a, b) => (a.date < b.date ? 1 : -1));
+  }, [udhaar, udLabel]);
+}
+function UdhaarEntriesTab({ ctx }) {
+  const batches = useUdhaarBatches(ctx);
+  const [expanded, setExpanded] = useState(null);
+  const canAdd = ctx.can("canAddEntries");
+  return (
+    <div>
+      <SectionHead title="Add udhaar entry" />
+      {canAdd ? <UdhaarAddForm ctx={ctx} /> : <LockedNote />}
+      <h3 className="sub-heading">All udhaar entries (view only — edit in Edit)</h3>
+      {batches.length === 0 && <EmptyRow>No udhaar entries yet.</EmptyRow>}
+      {batches.map((b) => {
+        const open = expanded === b.key;
+        return (
+          <div className="entry-card" key={b.key}>
+            <div className="entry-card-head" onClick={() => setExpanded(open ? null : b.key)}>
+              <div className="entry-card-title">
+                {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span className="mono-tag entry-tag">{b.label}</span>
+                <span>{fmtDate(b.date)} · {b.lines.length} item(s) · {num(b.pkts, 0)} pkts · {num(b.weight)} kg{b.note ? ` · ${b.note}` : ""}</span>
+              </div>
+            </div>
+            {open && (
+              <div className="entry-card-body">
+                <div className="tbl-wrap">
+                  <table className="ledger-table">
+                    <thead><tr><th>Description</th><th>PKTs</th><th>Weight</th><th>Item note</th></tr></thead>
+                    <tbody>{b.lines.map((l) => (<tr key={l.id}><td>{tightDesc(l.descriptionSnapshot)}</td><td className="mono">{num(l.totalPkts, 0)}</td><td className="mono">{num(l.weight)} kg</td><td>{l.note || "—"}</td></tr>))}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function ManageUdhaarModal({ ctx, batch, onClose }) {
+  const { udhaar, persist, stockMap } = ctx;
+  const [lines, setLines] = useState(batch.lines.map((l) => ({ ...l })));
+  const [adds, setAdds] = useState([]);
+  const [err, setErr] = useState("");
+  const inBatch = new Set(batch.lines.map((l) => l.id));
+  const otherBal = (id) => udhaar.filter((u) => u.descriptionId === id && !inBatch.has(u.id)).reduce((a, u) => a + N(u.totalPkts), 0);
+  const keptBal = (id) => lines.filter((l) => l.descriptionId === id).reduce((a, l) => a + N(l.totalPkts), 0);
+  const addBal = (id) => adds.filter((l) => l.descriptionId === id).reduce((a, l) => a + l.pkts, 0);
+  const addLine = (l) => {
+    const godown = stockMap.get(l.descriptionId)?.godownPkts || 0;
+    if (otherBal(l.descriptionId) + keptBal(l.descriptionId) + addBal(l.descriptionId) + l.pkts > godown) { setErr("Exceeds godown stock for that item."); return; }
+    setErr("");
+    setAdds([...adds, l]);
+  };
+  const save = () => {
+    const targetBatchId = batch.lines[0].batchId || batch.key;
+    const newRecs = adds.map((l) => {
+      const dd = ctx.descOf(l.descriptionId);
+      const pp = N(dd.pktsPerPlt);
+      return {
+        id: uid(), batchId: targetBatchId, date: batch.date, partyName: null, reference: batch.note,
+        descriptionId: dd.id, descriptionSnapshot: ctx.descLabel(dd), pktsPerPltSnapshot: pp, weightPerPktSnapshot: ctx.pktWeight(dd),
+        plts: pp ? Math.floor(l.pkts / pp) : 0, loosePkts: pp ? l.pkts % pp : l.pkts, totalPkts: l.pkts, weight: l.weight, note: l.note,
+      };
+    });
+    const others = udhaar.filter((r) => !inBatch.has(r.id));
+    persist.udhaar([...others, ...lines, ...newRecs]);
+    onClose();
+  };
+  return (
+    <Modal title={`Manage ${batch.label} — add / remove items`} onClose={onClose}>
+      <h4 className="modal-sub">Existing items</h4>
+      {lines.length === 0 && <EmptyRow>All rows removed — saving deletes this entry.</EmptyRow>}
+      <div className="list panel-list">
+        {lines.map((l) => (
+          <div className="row" key={l.id}>
+            <div><div className="row-title">{tightDesc(l.descriptionSnapshot)}</div><div className="row-sub">{num(l.totalPkts, 0)} pkts · {num(l.weight)} kg{l.note ? ` · ${l.note}` : ""}</div></div>
+            <div className="row-actions"><button className="icon-btn" onClick={() => setLines(lines.filter((x) => x.id !== l.id))}><Trash2 size={15} /></button></div>
+          </div>
+        ))}
+      </div>
+      <h4 className="modal-sub">Add more items</h4>
+      <UdhaarLineBuilder ctx={ctx} onAdd={addLine} />
+      {err && <div className="notice-warn">{err}</div>}
+      {adds.length > 0 && (
+        <div className="list panel-list">
+          {adds.map((l, i) => (
+            <div className="row" key={i}>
+              <div><div className="row-title">{ctx.descLabel(ctx.descOf(l.descriptionId))}</div><div className="row-sub">{num(l.pkts, 0)} pkts{l.note ? ` · ${l.note}` : ""}</div></div>
+              <div className="row-actions"><button className="icon-btn" onClick={() => setAdds(adds.filter((_, x) => x !== i))}><Trash2 size={15} /></button></div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="form-actions">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" onClick={save}><Check size={14} /> Save changes</button>
+      </div>
+    </Modal>
+  );
+}
+function UdhaarEditTab({ ctx }) {
+  const canEdit = ctx.can("canEditEntries"), canDelete = ctx.can("canDeleteEntries");
+  const { udhaar, persist } = ctx;
+  const allBatches = useUdhaarBatches(ctx);
+  const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
+  const [expanded, setExpanded] = useState(null);
+  const [headEdit, setHeadEdit] = useState(null); const [hd, setHd] = useState({ date: "", note: "" });
+  const [editId, setEditId] = useState(null); const [ef, setEf] = useState(null);
+  const [manage, setManage] = useState(null);
+  if (!canEdit && !canDelete) return <LockedNote />;
+  const batches = allBatches.filter((b) => {
+    if (from && b.date < from) return false;
+    if (to && b.date > to) return false;
+    if (!q.trim()) return true;
+    const query = q.trim().toLowerCase();
+    return b.label.toLowerCase().includes(query) || b.date.includes(query) || fmtDate(b.date).toLowerCase().includes(query) ||
+      (b.note || "").toLowerCase().includes(query) ||
+      b.lines.some((l) => tightDesc(l.descriptionSnapshot).toLowerCase().includes(query) || (l.note || "").toLowerCase().includes(query));
+  });
+  const saveHead = (ids) => { persist.udhaar(udhaar.map((r) => ids.has(r.id) ? { ...r, date: hd.date, reference: hd.note } : r)); setHeadEdit(null); };
+  const saveRow = () => {
+    const pp = N(ef.pktsPerPltSnapshot), wpp = N(ef.weightPerPktSnapshot);
+    const pkts = N(ef.pkts);
+    persist.udhaar(udhaar.map((r) => r.id === editId ? {
+      ...r, date: ef.date, note: ef.note,
+      plts: pp ? Math.floor(pkts / pp) : 0, loosePkts: pp ? pkts % pp : pkts, totalPkts: pkts, weight: pkts * wpp,
+    } : r));
+    setEditId(null);
+  };
+  const mb = batches.find((b) => b.key === manage);
+  return (
+    <div>
+      <SectionHead title="Edit udhaar entries" />
+      <div className="filter-bar no-print">
+        <Field label="Search entry / item"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="UD-1, description, note…" /></div></Field>
+        <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+        <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
+      </div>
+      <div className="info-banner">Use <b>+</b> on an entry to open the popup: add more items or delete existing ones. Deleting an entry returns that udhaar from stock.</div>
+      {batches.length === 0 && <EmptyRow>Nothing to edit.</EmptyRow>}
+      {batches.map((b) => {
+        const open = expanded === b.key, editingHead = headEdit === b.key;
+        const ids = new Set(b.lines.map((l) => l.id));
+        return (
+          <div className="entry-card" key={b.key}>
+            <div className="entry-card-head" onClick={() => !editingHead && setExpanded(open ? null : b.key)}>
+              <div className="entry-card-title">
+                {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <span className="mono-tag entry-tag">{b.label}</span>
+                {editingHead ? (
+                  <span className="entry-date-edit" onClick={(e) => e.stopPropagation()}>
+                    <input type="date" value={hd.date} onChange={(e) => setHd({ ...hd, date: e.target.value })} />
+                    <input value={hd.note} onChange={(e) => setHd({ ...hd, note: e.target.value })} placeholder="note" style={{ width: 180 }} />
+                    <button className="icon-btn" onClick={() => saveHead(ids)}><Check size={14} /></button>
+                    <button className="icon-btn" onClick={() => setHeadEdit(null)}><X size={14} /></button>
+                  </span>
+                ) : (<span>{fmtDate(b.date)} · {b.lines.length} item(s) · {num(b.pkts, 0)} pkts{b.note ? ` · ${b.note}` : ""}</span>)}
+              </div>
+              {!editingHead && (
+                <div className="row-actions">
+                  {canEdit && <button className="icon-btn" title="Add / remove items" onClick={(e) => { e.stopPropagation(); setManage(b.key); }}><Plus size={15} /></button>}
+                  {canEdit && <button className="icon-btn" title="Edit date / note" onClick={(e) => { e.stopPropagation(); setHeadEdit(b.key); setHd({ date: b.date, note: b.note }); }}><Pencil size={15} /></button>}
+                  {canDelete && <button className="icon-btn" onClick={(e) => { e.stopPropagation(); if (confirmDelete(b.label)) persist.udhaar(udhaar.filter((r) => !ids.has(r.id))); }}><Trash2 size={15} /></button>}
+                </div>
+              )}
+            </div>
+            {open && (
+              <div className="entry-card-body">
+                <div className="list panel-list">
+                  {b.lines.map((l) => (
+                    <div className="row" key={l.id}>
+                      {editId === l.id ? (
+                        <div className="edit-row">
+                          <input type="number" value={ef.pkts} onChange={(e) => setEf({ ...ef, pkts: e.target.value })} />
+                          <input value={ef.note} onChange={(e) => setEf({ ...ef, note: e.target.value })} placeholder="note" />
+                          <input type="date" value={ef.date} onChange={(e) => setEf({ ...ef, date: e.target.value })} />
+                          <button className="icon-btn" onClick={saveRow}><Check size={15} /></button>
+                          <button className="icon-btn" onClick={() => setEditId(null)}><X size={15} /></button>
+                        </div>
+                      ) : (
+                        <>
+                          <div><div className="row-title">{tightDesc(l.descriptionSnapshot)}</div><div className="row-sub">{num(l.totalPkts, 0)} pkts · {num(l.weight)} kg{l.note ? ` · ${l.note}` : ""} · {fmtDate(l.date)}</div></div>
+                          <div className="row-actions">
+                            {canEdit && <button className="icon-btn" onClick={() => { setEditId(l.id); setEf({ pkts: l.totalPkts, note: l.note || "", date: l.date, pktsPerPltSnapshot: l.pktsPerPltSnapshot, weightPerPktSnapshot: l.weightPerPktSnapshot }); }}><Pencil size={15} /></button>}
+                            {canDelete && <button className="icon-btn" onClick={() => { if (confirmDelete("this line")) persist.udhaar(udhaar.filter((x) => x.id !== l.id)); }}><Trash2 size={15} /></button>}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {mb && <ManageUdhaarModal ctx={ctx} batch={mb} onClose={() => setManage(null)} />}
+    </div>
+  );
+}
 function UdhaarTableView({ ctx }) {
   const { descriptions, udhaar, persist, stockMap, descLabel, pktWeight } = ctx;
   const canEdit = ctx.can("canEditEntries");
   const [q, setQ] = useState("");
+  const [onlyStock, setOnlyStock] = useState(false);
   const [draft, setDraft] = useState({});
   const [err, setErr] = useState("");
   const [savedId, setSavedId] = useState(null);
-  const rowFor = (id) => udhaar.find((u) => u.descriptionId === id);
+  const balMap = useMemo(() => {
+    const m = new Map();
+    udhaar.forEach((u) => {
+      const cur = m.get(u.descriptionId) || { pkts: 0, weight: 0, date: u.date };
+      cur.pkts += N(u.totalPkts); cur.weight += N(u.weight);
+      if ((u.date || "") > (cur.date || "")) cur.date = u.date;
+      m.set(u.descriptionId, cur);
+    });
+    return m;
+  }, [udhaar]);
   const get = (id) => {
     if (draft[id]) return draft[id];
-    const r = rowFor(id);
-    return { plts: r ? String(r.plts) : "", loose: r ? String(r.loosePkts) : "" };
+    const b = balMap.get(id);
+    const d = descriptions.find((x) => x.id === id);
+    const perPlt = d ? N(d.pktsPerPlt) : 0;
+    const pk = b ? b.pkts : 0;
+    return { plts: b && perPlt ? String(Math.floor(pk / perPlt)) : "", loose: b && perPlt ? String(pk % perPlt) : "" };
   };
   const linePkts = (d) => N(get(d.id).plts) * N(d.pktsPerPlt) + N(get(d.id).loose);
-  const list = descriptions.filter((d) => !q.trim() || descLabel(d).toLowerCase().includes(q.toLowerCase()));
+  const list = descriptions.filter((d) => {
+    if (onlyStock && (stockMap.get(d.id)?.godownPkts || 0) <= 0) return false;
+    return !q.trim() || descLabel(d).toLowerCase().includes(q.toLowerCase());
+  });
   const saveRow = (d) => {
     setErr("");
-    const cur = rowFor(d.id);
     const plts = N(get(d.id).plts), loose = N(get(d.id).loose);
     const pk = plts * N(d.pktsPerPlt) + loose;
     const godown = stockMap.get(d.id)?.godownPkts || 0;
     if (pk > godown) { setErr(`${descLabel(d)}: udhaar ${num(pk, 0)} pkts exceeds godown stock ${num(godown, 0)} pkts (In − Purchased).`); return; }
-    let next;
-    if (!cur) {
-      if (pk === 0) return;
-      next = [...udhaar, { id: uid(), batchId: null, date: todayISO(), partyName: null, reference: null, descriptionId: d.id, descriptionSnapshot: descLabel(d), pktsPerPltSnapshot: N(d.pktsPerPlt), weightPerPktSnapshot: pktWeight(d), plts, loosePkts: loose, totalPkts: pk, weight: pk * pktWeight(d), note: "" }];
-    } else if (pk === 0) {
-      next = udhaar.filter((u) => u.id !== cur.id);
-    } else {
-      next = udhaar.map((u) => u.id === cur.id ? { ...u, date: todayISO(), descriptionSnapshot: descLabel(d), pktsPerPltSnapshot: N(d.pktsPerPlt), weightPerPktSnapshot: pktWeight(d), plts, loosePkts: loose, totalPkts: pk, weight: pk * pktWeight(d) } : u);
-    }
+    const rest = udhaar.filter((u) => u.descriptionId !== d.id);
+    const next = pk > 0 ? [...rest, {
+      id: uid(), batchId: null, date: todayISO(), partyName: null, reference: null,
+      descriptionId: d.id, descriptionSnapshot: descLabel(d), pktsPerPltSnapshot: N(d.pktsPerPlt), weightPerPktSnapshot: pktWeight(d),
+      plts, loosePkts: loose, totalPkts: pk, weight: pk * pktWeight(d), note: "adjusted in table",
+    }] : rest;
     persist.udhaar(next);
     setDraft({ ...draft, [d.id]: { plts: pk ? String(plts) : "", loose: pk ? String(loose) : "" } });
     setSavedId(d.id); setTimeout(() => setSavedId(null), 1500);
   };
   return (
     <div>
-      <SectionHead title="Udhaar table — change udhaar per item" />
-      <div className="info-banner">Godown = PKT In − Purchased. Udhaar cannot exceed godown. Amber = udhaar more than one PLT (with pallet suggestion). Red = over godown. Setting 0 clears udhaar. Purchases auto-settle udhaar; deleting them returns it.</div>
-      <div className="filter-bar no-print"><Field label="Search item"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="description..." /></div></Field></div>
+      <SectionHead title="Udhaar table — set balance per item" />
+      <div className="info-banner">Balances come from udhaar entries (In − Purchased cap applies). Amber = udhaar more than one PLT (with pallet suggestion). Red = over godown. Setting 0 clears udhaar. Purchases auto-settle udhaar; deleting them returns it.</div>
+      <div className="filter-bar no-print">
+        <Field label="Search item"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="description..." /></div></Field>
+        <Field label="Filter">
+          <button type="button" className={"btn " + (onlyStock ? "primary" : "")} onClick={() => setOnlyStock((o) => !o)}>
+            <Boxes size={14} /> Only current stock {onlyStock ? "✓" : ""}
+          </button>
+        </Field>
+      </div>
       {err && <div className="notice-warn">{err}</div>}
       <div className="tbl-wrap">
         <table className="ledger-table">
           <thead><tr><th>Description</th><th>Pkts/PLT</th><th>Godown PKTs</th><th>Udhaar PLTs</th><th>Loose pkts</th><th>Udhaar PKTs</th><th>Available PKTs</th><th>Udhaar Weight</th><th>Suggest purchase</th><th className="no-print" /></tr></thead>
           <tbody>
-            {list.length === 0 && <tr><td colSpan={10}><EmptyRow>No items match.</EmptyRow></td></tr>}
+            {list.length === 0 && <tr><td colSpan={10}><EmptyRow>{onlyStock ? "No items with current stock match." : "No items match."}</EmptyRow></td></tr>}
             {list.map((d) => {
-              const st = stockMap.get(d.id);
-              const godown = st?.godownPkts || 0;
-              const saved = rowFor(d.id);
-              const savedPk = saved ? N(saved.totalPkts) : 0;
+              const godown = stockMap.get(d.id)?.godownPkts || 0;
+              const bal = balMap.get(d.id);
+              const savedPk = bal ? bal.pkts : 0;
               const pk = linePkts(d);
               const over = savedPk > godown;
               const hot = !over && savedPk > N(d.pktsPerPlt);
@@ -1186,8 +1495,8 @@ function UdhaarTableView({ ctx }) {
                   <td><b>{descLabel(d)}</b></td>
                   <td className="mono">{num(d.pktsPerPlt, 0)}</td>
                   <td className="mono">{num(godown, 0)}</td>
-                  <td>{canEdit ? <input className="tbl-input" type="number" value={get(d.id).plts} onChange={(e) => setDraft({ ...draft, [d.id]: { ...get(d.id), plts: e.target.value } })} placeholder="0" /> : <span className="mono">{num(saved?.plts || 0, 0)}</span>}</td>
-                  <td>{canEdit ? <input className="tbl-input" type="number" value={get(d.id).loose} onChange={(e) => setDraft({ ...draft, [d.id]: { ...get(d.id), loose: e.target.value } })} placeholder="0" /> : <span className="mono">{num(saved?.loosePkts || 0, 0)}</span>}</td>
+                  <td>{canEdit ? <input className="tbl-input" type="number" value={get(d.id).plts} onChange={(e) => setDraft({ ...draft, [d.id]: { ...get(d.id), plts: e.target.value } })} placeholder="0" /> : <span className="mono">{num(d.pktsPerPlt ? Math.floor(savedPk / N(d.pktsPerPlt)) : 0, 0)}</span>}</td>
+                  <td>{canEdit ? <input className="tbl-input" type="number" value={get(d.id).loose} onChange={(e) => setDraft({ ...draft, [d.id]: { ...get(d.id), loose: e.target.value } })} placeholder="0" /> : <span className="mono">{num(d.pktsPerPlt ? savedPk % N(d.pktsPerPlt) : 0, 0)}</span>}</td>
                   <td className="mono"><b>{num(pk, 0)}</b></td>
                   <td className="mono">{num(godown - savedPk, 0)}</td>
                   <td className="mono">{num(pk * pktWeight(d))} kg</td>
@@ -1209,28 +1518,49 @@ function UdhaarReportView({ ctx }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ field: "description", dir: "asc" });
   if (!ctx.can("canViewReports")) return <LockedNote />;
-  const base = udhaar.filter((u) => N(u.totalPkts) > 0 && (!q.trim() || (u.descriptionSnapshot || "").toLowerCase().includes(q.toLowerCase())));
-  const getters = { description: (r) => tightDesc(r.descriptionSnapshot), pkts: (r) => N(r.totalPkts), weight: (r) => N(r.weight), plts: (r) => N(r.plts) };
+  const balMap = useMemo(() => {
+    const m = new Map();
+    udhaar.forEach((u) => {
+      if (N(u.totalPkts) <= 0) return;
+      const cur = m.get(u.descriptionId) || { pkts: 0, weight: 0, date: u.date, perPlt: N(u.pktsPerPltSnapshot) };
+      cur.pkts += N(u.totalPkts); cur.weight += N(u.weight);
+      if ((u.date || "") > (cur.date || "")) cur.date = u.date;
+      m.set(u.descriptionId, cur);
+    });
+    return m;
+  }, [udhaar]);
+  const base = [...balMap.entries()].map(([id, b]) => {
+    const d = descriptions.find((x) => x.id === id);
+    const row = udhaar.find((u) => u.descriptionId === id);
+    return {
+      descriptionId: id,
+      description: d ? ctx.descLabel(d) : tightDesc(row ? row.descriptionSnapshot : ""),
+      pkts: b.pkts, weight: b.weight, date: b.date,
+      perPlt: d ? N(d.pktsPerPlt) : b.perPlt,
+    };
+  }).filter((r) => !q.trim() || r.description.toLowerCase().includes(q.toLowerCase()));
+  const getters = {
+    description: (r) => r.description, pkts: (r) => r.pkts, weight: (r) => r.weight,
+    godown: (r) => stockMap.get(r.descriptionId)?.godownPkts || 0,
+    available: (r) => (stockMap.get(r.descriptionId)?.godownPkts || 0) - r.pkts,
+  };
   const rows = sortRows(base, sort, getters);
-  const gP = rows.reduce((a, r) => a + N(r.totalPkts), 0), gW = rows.reduce((a, r) => a + N(r.weight), 0);
+  const gP = rows.reduce((a, r) => a + r.pkts, 0), gW = rows.reduce((a, r) => a + r.weight, 0);
   const flagFor = (r) => {
-    const d = descriptions.find((x) => x.id === r.descriptionId);
-    const perPlt = d ? N(d.pktsPerPlt) : N(r.pktsPerPltSnapshot);
     const godown = stockMap.get(r.descriptionId)?.godownPkts || 0;
-    if (N(r.totalPkts) > godown) return "over";
-    if (N(r.totalPkts) > perPlt) return "hot";
+    if (r.pkts > godown) return "over";
+    if (r.pkts > r.perPlt) return "hot";
     return "";
   };
   const doPrint = () => {
-    let html = `<table><thead><tr><th>Description</th><th>Pkts/PLT</th><th>Udhaar PLTs</th><th>Loose</th><th>Udhaar PKTs</th><th>Godown</th><th>Available</th><th>Weight</th><th>Suggest</th><th>Flag</th></tr></thead><tbody>`;
+    let html = `<table><thead><tr><th>Description</th><th>Pkts/PLT</th><th>Udhaar PKTs</th><th>Godown</th><th>Available</th><th>Weight</th><th>Suggest</th><th>Updated</th></tr></thead><tbody>`;
     rows.forEach((r) => {
       const godown = stockMap.get(r.descriptionId)?.godownPkts || 0;
       const fl = flagFor(r);
-      const d = descriptions.find((x) => x.id === r.descriptionId);
-      const sug = suggestPlts(d ? d.pktsPerPlt : r.pktsPerPltSnapshot, r.totalPkts);
-      html += `<tr class="${fl}"><td>${esc(tightDesc(r.descriptionSnapshot))}</td><td>${num(r.pktsPerPltSnapshot, 0)}</td><td>${num(r.plts, 0)}</td><td>${num(r.loosePkts, 0)}</td><td>${num(r.totalPkts, 0)}</td><td>${num(godown, 0)}</td><td>${num(godown - N(r.totalPkts), 0)}</td><td>${num(r.weight)}</td><td>${sug > 0 ? sug + " PLT" : ""}</td><td>${fl === "hot" ? "HIGH" : fl === "over" ? "OVER GODOWN" : ""}</td></tr>`;
+      const sug = suggestPlts(r.perPlt, r.pkts);
+      html += `<tr class="${fl}"><td>${esc(r.description)}</td><td>${num(r.perPlt, 0)}</td><td>${num(r.pkts, 0)}</td><td>${num(godown, 0)}</td><td>${num(godown - r.pkts, 0)}</td><td>${num(r.weight)}</td><td>${sug > 0 ? sug + " PLT" : ""}</td><td>${esc(fmtDate(r.date))}</td></tr>`;
     });
-    html += `</tbody><tfoot><tr><td colspan="4">${rows.length} item(s)</td><td>${num(gP, 0)}</td><td></td><td></td><td>${num(gW)}</td><td></td><td></td></tr></tfoot></table>`;
+    html += `</tbody><tfoot><tr><td colspan="2">${rows.length} item(s)</td><td>${num(gP, 0)}</td><td></td><td></td><td>${num(gW)}</td><td></td><td></td></tr></tfoot></table>`;
     printHTML("Udhaar report", html || "<p>No udhaar.</p>");
   };
   return (
@@ -1238,27 +1568,24 @@ function UdhaarReportView({ ctx }) {
       <SectionHead title="Udhaar report" onPrint={doPrint} />
       <div className="filter-bar no-print">
         <Field label="Search item"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
-        <SortControl value={sort} onChange={setSort} options={[{ value: "description", label: "Description" }, { value: "pkts", label: "Udhaar PKTs" }, { value: "plts", label: "Udhaar PLTs" }, { value: "weight", label: "Weight" }]} />
+        <SortControl value={sort} onChange={setSort} options={[{ value: "description", label: "Description" }, { value: "pkts", label: "Udhaar PKTs" }, { value: "godown", label: "Godown" }, { value: "available", label: "Available" }, { value: "weight", label: "Weight" }]} />
       </div>
       <div className="tbl-wrap">
         <table className="ledger-table">
-          <thead><tr><th>Description</th><th>Pkts/PLT</th><th>Udhaar PLTs</th><th>Loose</th><th>Udhaar PKTs</th><th>Godown PKTs</th><th>Available</th><th>Weight</th><th>Suggest purchase</th><th>Updated</th></tr></thead>
+          <thead><tr><th>Description</th><th>Pkts/PLT</th><th>Udhaar PKTs</th><th>Godown PKTs</th><th>Available</th><th>Weight</th><th>Suggest purchase</th><th>Updated</th></tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={10}><EmptyRow>No udhaar recorded.</EmptyRow></td></tr>}
+            {rows.length === 0 && <tr><td colSpan={8}><EmptyRow>No udhaar recorded.</EmptyRow></td></tr>}
             {rows.map((r) => {
               const godown = stockMap.get(r.descriptionId)?.godownPkts || 0;
               const fl = flagFor(r);
-              const d = descriptions.find((x) => x.id === r.descriptionId);
-              const sug = suggestPlts(d ? d.pktsPerPlt : r.pktsPerPltSnapshot, r.totalPkts);
+              const sug = suggestPlts(r.perPlt, r.pkts);
               return (
-                <tr key={r.id} className={fl === "over" ? "row-over" : fl === "hot" ? "row-hot" : ""}>
-                  <td><b>{tightDesc(r.descriptionSnapshot)}</b></td>
-                  <td className="mono">{num(r.pktsPerPltSnapshot, 0)}</td>
-                  <td className="mono">{num(r.plts, 0)}</td>
-                  <td className="mono">{num(r.loosePkts, 0)}</td>
-                  <td className="mono"><b>{num(r.totalPkts, 0)}</b></td>
+                <tr key={r.descriptionId} className={fl === "over" ? "row-over" : fl === "hot" ? "row-hot" : ""}>
+                  <td><b>{r.description}</b></td>
+                  <td className="mono">{num(r.perPlt, 0)}</td>
+                  <td className="mono"><b>{num(r.pkts, 0)}</b></td>
                   <td className="mono">{num(godown, 0)}</td>
-                  <td className="mono">{num(godown - N(r.totalPkts), 0)}</td>
+                  <td className="mono">{num(godown - r.pkts, 0)}</td>
                   <td className="mono">{num(r.weight)} kg</td>
                   <td>{sug > 0 ? <Stamp tone="amber">Buy {sug} PLT</Stamp> : <span className="mono">—</span>}</td>
                   <td className="mono">{fmtDate(r.date)}</td>
@@ -1266,7 +1593,7 @@ function UdhaarReportView({ ctx }) {
               );
             })}
           </tbody>
-          {rows.length > 0 && (<tfoot><tr><td colSpan={4}>{rows.length} item(s)</td><td className="mono">{num(gP, 0)}</td><td /><td /><td className="mono">{num(gW)}</td><td /><td /></tr></tfoot>)}
+          {rows.length > 0 && (<tfoot><tr><td colSpan={2}>{rows.length} item(s)</td><td className="mono">{num(gP, 0)}</td><td /><td /><td className="mono">{num(gW)}</td><td /><td /></tr></tfoot>)}
         </table>
       </div>
     </div>
@@ -1327,36 +1654,35 @@ function SaleBaseStockTab({ ctx }) {
   if (!ctx.can("canViewReports")) return <LockedNote />;
   const base = pktStock.filter((r) => !q.trim() || r.description.toLowerCase().includes(q.toLowerCase()));
   const getters = {
-    description: (r) => r.description, plts: (r) => r.totalPlts, pkts: (r) => r.totalPkts,
-    afterPurchase: (r) => r.godownPkts, udhaar: (r) => r.udPkts, afterUdhaar: (r) => r.availablePkts,
+    description: (r) => r.description, plts: (r) => r.godownPlts, pkts: (r) => r.godownPkts,
+    udhaar: (r) => r.udPkts, afterUdhaar: (r) => r.availablePkts,
     weight: (r) => r.godownWeight, weightAfter: (r) => r.availableWeight,
   };
   const rows = sortRows(base, sort, getters);
-  const T = rows.reduce((a, r) => ({ plts: a.plts + r.totalPlts, pkts: a.pkts + r.totalPkts, ap: a.ap + r.godownPkts, ud: a.ud + r.udPkts, au: a.au + r.availablePkts, wt: a.wt + r.godownWeight, wa: a.wa + r.availableWeight }), { plts: 0, pkts: 0, ap: 0, ud: 0, au: 0, wt: 0, wa: 0 });
+  const T = rows.reduce((a, r) => ({ plts: a.plts + r.godownPlts, pkts: a.pkts + r.godownPkts, ud: a.ud + r.udPkts, au: a.au + r.availablePkts, wt: a.wt + r.godownWeight, wa: a.wa + r.availableWeight }), { plts: 0, pkts: 0, ud: 0, au: 0, wt: 0, wa: 0 });
   const doPrint = () => {
-    let html = `<table><thead><tr><th>Description</th><th>Current PLTs</th><th>Current PKTs</th><th>After Purchase</th><th>Udhaar</th><th>PKTs After Udhaar</th><th>Weight</th><th>Weight After Udhaar</th></tr></thead><tbody>`;
-    rows.forEach((r) => { html += `<tr><td>${esc(r.description)}</td><td>${num(r.totalPlts, 0)}</td><td>${num(r.totalPkts, 0)}</td><td>${num(r.godownPkts, 0)}</td><td>${num(r.udPkts, 0)}</td><td>${num(r.availablePkts, 0)}</td><td>${num(r.godownWeight)}</td><td>${num(r.availableWeight)}</td></tr>`; });
-    html += `</tbody><tfoot><tr><td>${rows.length} description(s)</td><td>${num(T.plts, 0)}</td><td>${num(T.pkts, 0)}</td><td>${num(T.ap, 0)}</td><td>${num(T.ud, 0)}</td><td>${num(T.au, 0)}</td><td>${num(T.wt)}</td><td>${num(T.wa)}</td></tr></tfoot></table>`;
+    let html = `<table><thead><tr><th>Description</th><th>Pkts/PLT</th><th>Current PLTs</th><th>Current PKTs</th><th>Udhaar</th><th>PKTs After Udhaar</th><th>Weight</th><th>Weight After Udhaar</th></tr></thead><tbody>`;
+    rows.forEach((r) => { html += `<tr><td>${esc(r.description)}</td><td>${num(r.pktsPerPlt, 0)}</td><td>${num(r.godownPlts, 0)}</td><td>${num(r.godownPkts, 0)}</td><td>${num(r.udPkts, 0)}</td><td>${num(r.availablePkts, 0)}</td><td>${num(r.godownWeight)}</td><td>${num(r.availableWeight)}</td></tr>`; });
+    html += `</tbody><tfoot><tr><td>${rows.length} description(s)</td><td></td><td>${num(T.plts, 0)}</td><td>${num(T.pkts, 0)}</td><td>${num(T.ud, 0)}</td><td>${num(T.au, 0)}</td><td>${num(T.wt)}</td><td>${num(T.wa)}</td></tr></tfoot></table>`;
     printHTML("Sale Base Stock", html);
   };
   return (
     <div>
       <SectionHead title="Sale Base Stock" onPrint={doPrint} />
-      <div className="info-banner">Current = PKT In. After Purchase = In − Purchased. Weight = after purchase. Weight After Udhaar = after purchase and udhaar.</div>
+      <div className="info-banner">Current PLTs / PKTs = after purchases (In − Purchased). Weight = weight of current pkts. PKTs After Udhaar = current − udhaar.</div>
       <div className="filter-bar no-print">
         <Field label="Search"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
-        <SortControl value={sort} onChange={setSort} options={[{ value: "description", label: "Description" }, { value: "plts", label: "Current PLTs" }, { value: "pkts", label: "Current PKTs" }, { value: "afterPurchase", label: "After Purchase" }, { value: "udhaar", label: "Udhaar" }, { value: "afterUdhaar", label: "After Udhaar" }, { value: "weight", label: "Weight" }, { value: "weightAfter", label: "Weight After" }]} />
+        <SortControl value={sort} onChange={setSort} options={[{ value: "description", label: "Description" }, { value: "plts", label: "Current PLTs" }, { value: "pkts", label: "Current PKTs" }, { value: "udhaar", label: "Udhaar" }, { value: "afterUdhaar", label: "After Udhaar" }, { value: "weight", label: "Weight" }, { value: "weightAfter", label: "Weight After" }]} />
       </div>
       <div className="tbl-wrap">
         <table className="ledger-table">
-          <thead><tr><th>Description</th><th>Current PLTs</th><th>Current PKTs</th><th>After Purchase (−)</th><th>Udhaar (−)</th><th>PKTs After Udhaar</th><th>Weight</th><th>Weight After Udhaar</th></tr></thead>
+          <thead><tr><th>Description</th><th>Current PLTs</th><th>Current PKTs</th><th>Udhaar (−)</th><th>PKTs After Udhaar</th><th>Weight</th><th>Weight After Udhaar</th></tr></thead>
           <tbody>
-            {rows.length === 0 && <tr><td colSpan={8}><EmptyRow>No stock yet.</EmptyRow></td></tr>}
+            {rows.length === 0 && <tr><td colSpan={7}><EmptyRow>No stock yet.</EmptyRow></td></tr>}
             {rows.map((r) => (
               <tr key={r.descriptionId}>
-                <td><b>{r.description}</b></td>
-                <td className="mono">{num(r.totalPlts, 0)}</td>
-                <td className="mono">{num(r.totalPkts, 0)}</td>
+                <td><b>{r.description}</b> <span className="mono-tag entry-tag">{num(r.pktsPerPlt, 0)}/PLT</span></td>
+                <td className="mono">{num(r.godownPlts, 0)}</td>
                 <td className="mono">{num(r.godownPkts, 0)}</td>
                 <td className="mono">{num(r.udPkts, 0)}</td>
                 <td className="mono"><b>{num(r.availablePkts, 0)}</b></td>
@@ -1365,16 +1691,16 @@ function SaleBaseStockTab({ ctx }) {
               </tr>
             ))}
           </tbody>
-          {rows.length > 0 && (<tfoot><tr><td>{rows.length} description(s)</td><td className="mono">{num(T.plts, 0)}</td><td className="mono">{num(T.pkts, 0)}</td><td className="mono">{num(T.ap, 0)}</td><td className="mono">{num(T.ud, 0)}</td><td className="mono">{num(T.au, 0)}</td><td className="mono">{num(T.wt)}</td><td className="mono">{num(T.wa)}</td></tr></tfoot>)}
+          {rows.length > 0 && (<tfoot><tr><td>{rows.length} description(s)</td><td className="mono">{num(T.plts, 0)}</td><td className="mono">{num(T.pkts, 0)}</td><td className="mono">{num(T.ud, 0)}</td><td className="mono">{num(T.au, 0)}</td><td className="mono">{num(T.wt)}</td><td className="mono">{num(T.wa)}</td></tr></tfoot>)}
         </table>
       </div>
     </div>
   );
 }
 
-/* ================= DASHBOARD ================= */
+/* ================= DASHBOARD (unchanged interface) ================= */
 function Dashboard({ ctx, setView }) {
-  const { pktStock, pktIn, purchases, udhaar, inLabel, puLabel } = ctx;
+  const { pktStock, pktIn, purchases, udhaar, inLabel, puLabel, udLabel } = ctx;
   const canView = ctx.can("canViewReports");
   const T = pktStock.reduce((a, r) => ({ plts: a.plts + r.totalPlts, pkts: a.pkts + r.totalPkts, pur: a.pur + r.purPkts, ud: a.ud + r.udPkts, av: a.av + r.availablePkts, wt: a.wt + r.totalWeight, wtAv: a.wtAv + r.availableWeight }), { plts: 0, pkts: 0, pur: 0, ud: 0, av: 0, wt: 0, wtAv: 0 });
   const purchAmount = purchases.reduce((a, p) => a + N(p.totalAmount), 0);
@@ -1395,10 +1721,19 @@ function Dashboard({ ctx, setView }) {
   const donutTotal = slices.reduce((a, s) => a + s.v, 0) || 1;
   const palette = ["#4318FF", "#2eb872", "#f5a524", "#7551FF", "#12b3d6", "#e5484d"];
   let acc = 0;
+  const udhaarRecent = (() => {
+    const m = new Map();
+    udhaar.forEach((u) => { const k = u.batchId || u.id; if (!m.has(k)) m.set(k, []); m.get(k).push(u); });
+    return [...m.entries()].map(([k, ls]) => ({
+      date: ls[0].date, tag: udLabel.get(k),
+      text: ls[0].reference || `${ls.length} item(s)`,
+      val: num(ls.reduce((a, l) => a + N(l.totalPkts), 0), 0) + " pkts udhaar", cls: "red",
+    }));
+  })();
   const recent = [
     ...pktIn.map((r) => ({ date: r.date, tag: inLabel.get(r.batchId), text: tightDesc(r.descriptionSnapshot), val: num(r.totalPkts, 0) + " pkts in", cls: "blue" })),
     ...purchases.map((r) => ({ date: r.date, tag: puLabel.get(r.batchId), text: tightDesc(r.descriptionSnapshot), val: money(r.totalAmount), cls: "green" })),
-    ...udhaar.map((r) => ({ date: r.date, tag: "UD", text: tightDesc(r.descriptionSnapshot), val: num(r.totalPkts, 0) + " pkts udhaar", cls: "red" })),
+    ...udhaarRecent,
   ].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 6);
   const inStock = pktStock.filter((r) => r.availablePkts >= r.pktsPerPlt && r.pktsPerPlt > 0).length;
   const low = pktStock.filter((r) => r.availablePkts > 0 && r.availablePkts < r.pktsPerPlt).length;
@@ -1479,7 +1814,7 @@ function Dashboard({ ctx, setView }) {
           <div className="ql-grid">
             <button className="ql-btn" onClick={() => setView("in-entries")}><Boxes size={18} /> PKT In</button>
             <button className="ql-btn" onClick={() => setView("pu-entries")}><Receipt size={18} /> Purchase</button>
-            <button className="ql-btn" onClick={() => setView("ud-table")}><PackageCheck size={18} /> Udhaar</button>
+            <button className="ql-btn" onClick={() => setView("ud-entries")}><PackageCheck size={18} /> Udhaar</button>
             <button className="ql-btn" onClick={() => setView("salebase-stock")}><Truck size={18} /> Sale Base Stock</button>
           </div>
         </div>
@@ -1496,16 +1831,14 @@ function TeamTab() {
   const [savedId, setSavedId] = useState(null);
   const [dirty, setDirty] = useState({});
   const [err, setErr] = useState("");
-
   const MODULES = [
     { id: "dashboard", label: "Dashboard", desc: "Overview cards & charts", icon: LayoutDashboard, actions: [] },
     { id: "masters", label: "Masters", desc: "Brands, suppliers & descriptions", icon: ClipboardList, actions: ["add", "edit", "delete"] },
     { id: "pktIn", label: "PKT In", desc: "Stock-in entries & report", icon: Boxes, actions: ["add", "edit", "delete", "report"] },
     { id: "purchases", label: "Purchases", desc: "Purchase entries & report", icon: Receipt, actions: ["add", "edit", "delete", "report"] },
-    { id: "udhaar", label: "Udhaar", desc: "Udhaar table & report", icon: PackageCheck, actions: ["add", "edit", "delete", "report"] },
+    { id: "udhaar", label: "Udhaar", desc: "Udhaar entries, table & report", icon: PackageCheck, actions: ["add", "edit", "delete", "report"] },
     { id: "stock", label: "Stock Reports", desc: "PKT stock & Sale Base stock", icon: Truck, actions: ["report"] },
   ];
-
   useEffect(() => {
     (async () => {
       try { setRows(await sbList("profiles", "?select=*&order=created_at.asc")); }
@@ -1513,9 +1846,7 @@ function TeamTab() {
       setLoading(false);
     })();
   }, []);
-
   const markDirty = (id) => setDirty((d) => ({ ...d, [id]: true }));
-
   const updatePerm = (userId, moduleId, actionId, checked) => {
     markDirty(userId);
     setRows(rows.map((r) => {
@@ -1528,9 +1859,7 @@ function TeamTab() {
       return { ...r, permissions: { ...perms, [moduleId]: nextMod } };
     }));
   };
-
   const setRole = (userId, role) => { markDirty(userId); setRows(rows.map((r) => (r.id === userId ? { ...r, role } : r))); };
-
   const applyPreset = (userId, preset) => {
     markDirty(userId);
     const perms = {};
@@ -1542,7 +1871,6 @@ function TeamTab() {
     });
     setRows(rows.map((r) => (r.id === userId ? { ...r, permissions: perms } : r)));
   };
-
   const permCount = (r) => {
     const perms = r.permissions || {};
     let n = 0;
@@ -1553,7 +1881,6 @@ function TeamTab() {
     });
     return n;
   };
-
   const save = async (row) => {
     setSavingId(row.id);
     try {
@@ -1564,10 +1891,8 @@ function TeamTab() {
     } catch (e) { alert("Save failed: " + e.message); }
     setSavingId(null);
   };
-
   if (loading) return <EmptyRow>Loading team…</EmptyRow>;
   if (err) return <LockedNote text={err} />;
-
   return (
     <div>
       <SectionHead title="Team & Access Control" />
@@ -1648,6 +1973,7 @@ function TeamTab() {
     </div>
   );
 }
+
 /* ================= AUTH + APP ================= */
 function LoginScreen({ onAuthed }) {
   const [mode, setMode] = useState("signin");
@@ -1674,12 +2000,15 @@ function LoginScreen({ onAuthed }) {
         <h1 className="login-title">SALE BASE STOCK</h1>
         <div className="login-sub">{mode === "signin" ? "Sign in to continue" : mode === "signup" ? "Create an account" : "Reset your password"}</div>
         {mode === "signup" && <Field label="Full name (optional)"><input name="name" autoComplete="name" value={fullName} onChange={(e) => setFullName(e.target.value)} /></Field>}
-        <Field label="Email"><input name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        {<Field label="Email"><input name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>}
         {mode !== "forgot" && <Field label="Password"><input name="password" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} /></Field>}
         {err && <div className="login-error">{err}</div>}
         {notice && <div className="login-notice">{notice}</div>}
         <button type="submit" className="btn primary login-submit" disabled={busy || !email || (mode !== "forgot" && !password)}>{busy ? "Please wait…" : mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send reset link"}</button>
-        {mode === "signin" && (<><button type="button" className="login-switch" onClick={() => { setMode("signup"); setErr(""); setNotice(""); }}>New here? Create an account</button><button type="button" className="login-switch" onClick={() => { setMode("forgot"); setErr(""); setNotice(""); }}>Forgot password?</button></>)}
+        {mode === "signin" && (<>
+          <button type="button" className="login-switch" onClick={() => { setMode("signup"); setErr(""); setNotice(""); }}>New here? Create an account</button>
+          <button type="button" className="login-switch" onClick={() => { setMode("forgot"); setErr(""); setNotice(""); }}>Forgot password?</button>
+        </>)}
         {mode !== "signin" && <button type="button" className="login-switch" onClick={() => { setMode("signin"); setErr(""); setNotice(""); }}>Back to sign in</button>}
       </form>
     </div>
@@ -1749,6 +2078,7 @@ function AuthedApp({ session, onSignOut }) {
   const stockMap = useMemo(() => new Map(pktStock.map((r) => [r.descriptionId, r])), [pktStock]);
   const inLabel = useMemo(() => buildSequentialLabelMap(pktIn, "batchId", "PI"), [pktIn]);
   const puLabel = useMemo(() => buildSequentialLabelMap(purchases, "batchId", "PP"), [purchases]);
+  const udLabel = useMemo(() => buildSequentialLabelMap(udhaar, "batchId", "UD"), [udhaar]);
   const applyUdhaarSettle = (udArr, lines) => {
     let next = udArr.map((u) => ({ ...u }));
     const settledMap = {};
@@ -1789,7 +2119,7 @@ function AuthedApp({ session, onSignOut }) {
   if (loadError) return <div className="app-shell"><div style={{ padding: 24 }}><LockedNote text={loadError} /><button className="btn" style={{ marginTop: 14 }} onClick={onSignOut}>Sign out</button></div></div>;
   const can = (perm) => !!profile && (profile.role === "admin" || profile[perm]);
   const isAdmin = profile.role === "admin";
-  const ctx = { brands, suppliers, descriptions, pktIn, purchases, udhaar, persist, brandName, supplierName, descOf, descLabel, pktWeight, descInUse, pktStock, stockMap, inLabel, puLabel, applyUdhaarSettle, applyUdhaarRestore, can, isAdmin };
+  const ctx = { brands, suppliers, descriptions, pktIn, purchases, udhaar, persist, brandName, supplierName, descOf, descLabel, pktWeight, descInUse, pktStock, stockMap, inLabel, puLabel, udLabel, applyUdhaarSettle, applyUdhaarRestore, can, isAdmin };
   return (
     <div className="app-shell">
       <Style />
@@ -1811,8 +2141,10 @@ function AuthedApp({ session, onSignOut }) {
             {view === "pu-entries" && <PurchaseEntriesTab ctx={ctx} />}
             {view === "pu-report" && <PurchaseReportView ctx={ctx} />}
             {view === "pu-edit" && <PurchaseEditTab ctx={ctx} />}
+            {view === "ud-entries" && <UdhaarEntriesTab ctx={ctx} />}
             {view === "ud-table" && <UdhaarTableView ctx={ctx} />}
             {view === "ud-report" && <UdhaarReportView ctx={ctx} />}
+            {view === "ud-edit" && <UdhaarEditTab ctx={ctx} />}
             {view === "stock" && <StockReportTab ctx={ctx} />}
             {view === "salebase-stock" && <SaleBaseStockTab ctx={ctx} />}
             {view === "team" && isAdmin && <TeamTab />}
@@ -1826,284 +2158,258 @@ function AuthedApp({ session, onSignOut }) {
 /* ================= styles (embedded, responsive) ================= */
 function Style() {
   return (<style>{`
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
-  *,*::before,*::after{box-sizing:border-box}
-  :root{--navy:#1B2559;--blue:#4318FF;--blue2:#7551FF;--blue-soft:#EEEAFF;--red:#e5484d;--green:#2eb872;--amber:#f5a524;--bg:#eef2f6;--line:#e3e9f0;--text:#17324d;--muted:#7b8ba3;--shadow:0 4px 14px rgba(23,50,77,.08);--radius:12px}
-  html,body,#root{height:100%;margin:0;padding:0;width:100%;background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',sans-serif;font-size:14px}
-  input,textarea,select,button{font-family:inherit;color:var(--text)}
-  .mono,.mono-tag{font-family:'JetBrains Mono',monospace}
-  .spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-  .app-shell{min-height:100vh}
-  .loading-shell{display:flex;align-items:center;justify-content:center;gap:10px;padding:60px 0;color:var(--muted);font-weight:600}
-  .app-layout{display:flex;min-height:100vh}
-  .main-area{flex:1;min-width:0;padding:16px 20px 34px}
-  .app-main{max-width:1240px;margin:0 auto}
-  
-    /* ===== team & access (redesigned) ===== */
-  .team-grid-container{display:flex;flex-direction:column;gap:16px}
-  .team-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line);padding:0}
-  .team-card-top{display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,#fbfcff,#fff);border-bottom:1px solid var(--line);flex-wrap:wrap}
-  .team-avatar{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 6px 14px rgba(67,24,255,.25)}
-  .team-id{flex:1;min-width:140px}
-  .team-name{font-weight:800;font-size:14px;color:var(--navy)}
-  .team-mail{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:1px}
-  .role-seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px}
-  .role-seg button{border:none;background:transparent;font-size:11.5px;font-weight:800;color:var(--muted);padding:6px 14px;border-radius:999px;cursor:pointer;transition:.15s}
-  .role-seg button.on{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;box-shadow:0 4px 10px rgba(67,24,255,.3)}
-  .team-save{display:flex;align-items:center;gap:8px}
-  .dirty-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px rgba(245,165,36,.2)}
-  .team-admin-note{margin:14px 20px 18px;display:flex;align-items:center;gap:10px;background:var(--blue-soft);border:1px solid rgba(67,24,255,.25);color:var(--blue);border-radius:12px;padding:10px 14px;font-size:12.5px;font-weight:700}
-  .perm-presets{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--line);background:#fbfcff}
-  .perm-presets>span:first-child{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-  .preset-btn{border:1px solid var(--line);background:#fff;border-radius:999px;font-size:11px;font-weight:700;color:var(--navy);padding:5px 12px;cursor:pointer;transition:.15s}
-  .preset-btn:hover{border-color:var(--blue);color:var(--blue)}
-  .perm-count{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);font-weight:700}
-  .perm-list{display:flex;flex-direction:column}
-  .perm-row{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);transition:background .15s;flex-wrap:wrap}
-  .perm-row:last-child{border-bottom:none}
-  .perm-row:hover{background:#fbfcff}
-  .perm-row.off .perm-mod-ic,.perm-row.off .perm-mod-label,.perm-row.off .perm-mod-desc{opacity:.45}
-  .perm-mod{display:flex;align-items:center;gap:12px;flex:1;min-width:190px}
-  .perm-mod-ic{width:34px;height:34px;border-radius:10px;background:var(--blue-soft);color:var(--blue);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .perm-mod-label{font-weight:800;font-size:13px;color:var(--navy)}
-  .perm-mod-desc{font-size:11px;color:var(--muted);font-weight:600;margin-top:1px}
-  .perm-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-  .perm-chip{border:1px solid var(--line);background:#fff;border-radius:999px;font-size:11px;font-weight:800;color:var(--muted);padding:6px 13px;cursor:pointer;transition:.15s;text-transform:uppercase;letter-spacing:.04em}
-  .perm-chip:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
-  .perm-chip.on{background:var(--blue-soft);border-color:rgba(67,24,255,.4);color:var(--blue)}
-  .perm-chip:disabled{opacity:.35;cursor:not-allowed}
-  .perm-none{font-size:11px;color:var(--muted);font-style:italic}
-  .switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
-  .switch input{display:none}
-  .switch-track{width:38px;height:22px;border-radius:999px;background:#d7dcea;position:relative;transition:.2s;flex-shrink:0}
-  .switch-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 2px 5px rgba(0,0,0,.2)}
-  .switch input:checked + .switch-track{background:linear-gradient(135deg,var(--blue),var(--blue2))}
-  .switch input:checked + .switch-track .switch-thumb{left:19px}
-  .switch-label{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-  @media (max-width:640px){
-    .team-card-top{padding:14px}
-    .perm-presets{padding:10px 14px}
-    .perm-row{padding:12px 14px}
-    .perm-mod{min-width:100%}
-    .team-admin-note{margin:12px 14px 14px}
-  }
-    
-  /* sidebar */
-  .rail{width:248px;flex-shrink:0;background:linear-gradient(180deg,#fff 0%,#f7f8ff 100%);border-right:1px solid #e6e8f5;display:flex;flex-direction:column;padding:12px 10px;gap:3px;position:sticky;top:0;height:100vh;z-index:30;box-shadow:4px 0 24px rgba(23,50,77,.06)}
-  .rail-top{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid #eceef8;margin-bottom:8px}
-  .rail-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 8px 18px rgba(67,24,255,.35)}
-  .rail-brand-title{font-size:14px;font-weight:800;color:var(--navy);white-space:nowrap}
-  .rail-brand-sub{font-size:9.5px;color:var(--blue2);font-weight:800;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
-  .rail-nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
-  .rail-group{display:flex;flex-direction:column;gap:2px}
-  .rail-btn{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:10px;border:none;background:transparent;color:#5a6b8c;font-size:13px;font-weight:700;cursor:pointer;text-align:left;transition:.15s}
-  .rail-label{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .rail-chevron{opacity:.6;flex-shrink:0;transition:.15s}.rail-chevron.open{transform:rotate(90deg)}
-  .rail-btn:hover{background:var(--blue-soft);color:var(--blue)}
-  .rail-btn.active{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;box-shadow:0 6px 16px rgba(67,24,255,.28)}
-  .rail-btn.active .rail-chevron{color:#fff}
-  .rail-drop{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.4,0,.2,1)}
-  .rail-drop.open{grid-template-rows:1fr}
-  .rail-drop-inner{overflow:hidden;min-height:0}
-  .rail-children{margin:1px 0 4px 16px;border-left:2px solid #e6e8f5;padding-left:8px;display:flex;flex-direction:column;gap:1px}
-  .rail-child{border:none;background:transparent;text-align:left;font-size:12px;font-weight:600;color:#7b8ba3;padding:7px 10px;border-radius:8px;cursor:pointer;transition:.12s}
-  .rail-child:hover{color:var(--blue);background:var(--blue-soft)}
-  .rail-child.active{color:var(--blue);background:var(--blue-soft);font-weight:800;box-shadow:inset 0 0 0 1px rgba(67,24,255,.25)}
-  .rail-foot{margin-top:auto;padding-top:8px;border-top:1px solid #eceef8}
-  .rail-signout:hover{background:#fdeaea;color:var(--red)}
-  /* header */
-  .page-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:#fff;border-radius:var(--radius);padding:10px 16px;box-shadow:var(--shadow);margin-bottom:12px}
-  .page-head h1{font-size:19px;font-weight:800;margin:0;color:var(--navy)}
-  .page-sub{color:var(--muted);font-size:11.5px;margin-top:2px;font-weight:600}
-  .user-chip{display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:12px;padding:6px 12px 6px 6px}
-  .user-avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
-  .user-mail{font-size:12px;font-weight:700}
-  .user-role{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:800}
-  /* generic */
-  .section-head{margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
-  .section-head h2{font-weight:800;font-size:15px;margin:0;color:var(--navy)}
-  .sub-heading{font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px;letter-spacing:.07em}
-  .btn{font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--navy);cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:var(--shadow)}
-  .btn:disabled{opacity:.45;cursor:not-allowed}
-  .btn.primary{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border-color:transparent}
-  .icon-btn{border:none;background:transparent;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;display:inline-flex}
-  .icon-btn:hover:not(:disabled){background:var(--blue-soft);color:var(--blue)}
-  .icon-btn:disabled{opacity:.3;cursor:not-allowed}
-  .field{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.07em}
-  .field input,.field select{font-family:'JetBrains Mono',monospace;font-size:12.5px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;width:100%}
-  .search-input{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:0 10px;min-width:180px}
-  .search-input input{border:none;padding:8px 0;background:transparent;width:100%;font-family:'JetBrains Mono',monospace;font-size:12.5px}
-  .search-input input:focus{outline:none}
-  .sort-control{display:flex;gap:6px}
-  .sort-control select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:#fff}
-  .sort-dir-btn{white-space:nowrap}
-  .stamp{font-family:'JetBrains Mono',monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block;font-weight:700}
-  .stamp-green{color:#157347;background:#e3f6ec}.stamp-rust{color:var(--red);background:#fdeaea}.stamp-gray{color:var(--muted);background:#eef1f5}.stamp-amber{color:#8a5b00;background:#fdf1d7}
-  .entry-tag{background:var(--blue-soft);color:var(--blue);padding:3px 8px;border-radius:7px;font-size:10px;font-weight:800}
-  .info-banner{background:var(--blue-soft);border:1px solid rgba(67,24,255,.3);color:var(--blue);border-radius:10px;padding:9px 13px;font-size:12px;font-weight:600;margin-bottom:10px}
-  .notice-warn{background:#fdf1d7;border:1px solid var(--amber);color:#8a5b00;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:600;margin:8px 0}
-  /* forms */
-  .ticket-form{background:#fff;border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow)}
-  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-  .computed{font-size:12.5px;color:var(--muted);font-weight:600}.computed b{color:var(--navy);font-family:'JetBrains Mono',monospace}
-  .form-actions{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap}
-  .checkbox-field{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
-  .checkbox-field input{accent-color:var(--blue)}
-  .entry2{background:#fff;border-radius:16px;box-shadow:var(--shadow);padding:18px;margin-bottom:12px;display:flex;flex-direction:column;gap:14px}
-  .entry2-head{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
-  .entry2-head .field{flex:1;min-width:180px}
-  .builder{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
-  .builder-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
-  .builder-desc{flex:2;min-width:220px}
-  .builder-row .field{flex:0 0 110px}
-  .builder-add{flex:0 0 auto;margin-left:auto}
-  .builder-chips{display:flex;gap:8px;flex-wrap:wrap}
-  .b-chip{font-size:11px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px}
-  .b-chip b{color:var(--blue);font-family:'JetBrains Mono',monospace;margin-left:5px}
-  .lines-box{display:flex;flex-direction:column;gap:8px}
-  .lines-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800}
-  .lines-total{display:flex;gap:18px;justify-content:flex-end;flex-wrap:wrap;background:var(--blue-soft);border:1px solid rgba(67,24,255,.25);color:var(--blue);border-radius:10px;padding:9px 14px;font-size:12px;font-weight:800}
-  .lines-total .mono{font-family:'JetBrains Mono',monospace}
-  /* lists & cards */
-  .list{display:flex;flex-direction:column}
-  .panel-list{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:4px 14px}
-  .row{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;gap:12px;border-bottom:1px solid var(--line)}
-  .row:last-child{border-bottom:none}
-  .row-title{font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--navy)}
-  .row-sub{font-size:11px;color:var(--muted);margin-top:2px;font-weight:600}
-  .row-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
-  .edit-row{display:flex;gap:6px;flex:1;align-items:center;flex-wrap:wrap}
-  .edit-row input,.edit-row select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:7px;border:1.5px solid var(--blue);border-radius:8px;width:auto;min-width:88px;background:#fff}
-  .entry-card{border-radius:12px;margin-bottom:8px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
-  .entry-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;cursor:pointer}
-  .entry-card-head:hover{background:var(--bg)}
-  .entry-card-title{display:flex;align-items:center;gap:8px;font-size:12.5px;flex-wrap:wrap;font-weight:600}
-  .entry-card-body{padding:8px 14px 10px;border-top:1px solid var(--line)}
-  .entry-date-edit{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-  .entry-date-edit input,.entry-date-edit select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:5px 7px;border:1px solid var(--line);border-radius:7px}
-  /* modal */
-  .modal-overlay{position:fixed;inset:0;background:rgba(27,37,89,.45);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px}
-  .modal-panel{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(27,37,89,.35);width:100%;max-width:860px;max-height:88vh;display:flex;flex-direction:column}
-  .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
-  .modal-head h3{margin:0;font-size:14px;font-weight:800;color:var(--navy)}
-  .modal-body{padding:14px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
-  .modal-sub{margin:0 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800}
-  /* tables */
-  .tbl-wrap{overflow-x:auto;border-radius:10px}
-  .date-block{margin-bottom:12px}
-  .date-block-head{font-family:'JetBrains Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;background:var(--navy);color:#fff;padding:7px 14px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-  .date-block-head span{color:rgba(255,255,255,.65);text-transform:none;letter-spacing:0;font-weight:500}
-  .ledger-table{width:100%;border-collapse:collapse;font-size:12px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
-  .ledger-table th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800;padding:7px 10px;border-bottom:1px solid var(--line);background:#f8fafc}
-  .ledger-table td{padding:7px 10px;border-bottom:1px solid var(--line)}
-  .ledger-table tr:last-child td{border-bottom:none}
-  .ledger-table td.mono{font-family:'JetBrains Mono',monospace}
-  .ledger-table tfoot td{font-weight:800;border-top:2px solid var(--navy);border-bottom:none;font-family:'JetBrains Mono',monospace;background:#f8fafc}
-  tr.row-hot td{background:#fdf1d7}tr.row-over td{background:#fdeaea}
-  .tbl-input{width:100px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
-  .filter-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;background:#fff;border-radius:var(--radius);padding:10px 12px;box-shadow:var(--shadow)}
-  .report-grand-total{display:flex;gap:20px;align-items:center;justify-content:flex-end;flex-wrap:wrap;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border-radius:12px;padding:11px 18px;margin-top:8px;font-size:12.5px;font-weight:700}
-  .report-grand-total .mono{font-family:'JetBrains Mono',monospace;font-size:13px}
-  .empty-row{padding:18px 4px;color:var(--muted);font-size:12.5px;border:1.5px dashed var(--line);border-radius:12px;text-align:center;font-weight:600;background:#fff}
-  .locked-panel{display:flex;align-items:flex-start;gap:10px;padding:14px;border:1px solid var(--red);background:#fdeaea;border-radius:12px;color:var(--red);font-size:12.5px;line-height:1.5;font-weight:600}
-  .team-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 16px;border-radius:12px;margin-bottom:8px;background:#fff;box-shadow:var(--shadow)}
-  .team-row-name{font-weight:700;font-size:12.5px;min-width:150px}
-  .team-row select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:7px 9px;border:1px solid var(--line);border-radius:10px}
-  .team-perm{margin:0;white-space:nowrap}
-  /* dashboard */
-  .dash-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
-  .stat-card{border-radius:12px;padding:12px;color:#fff;display:flex;gap:10px;align-items:center;box-shadow:var(--shadow)}
-  .stat-card .ic{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-  .stat-card .l{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.92}
-  .stat-card .v{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;margin-top:1px}
-  .stat-card .s{font-size:10px;font-weight:600;opacity:.85;margin-top:1px}
-  .stat-card.blue{background:linear-gradient(135deg,#4318FF,#1e63c4)}
-  .stat-card.red{background:linear-gradient(135deg,#f0646a,#e5484d)}
-  .stat-card.green{background:linear-gradient(135deg,#3cc98a,#1f9d5d)}
-  .stat-card.purple{background:linear-gradient(135deg,#8b6cff,#5f3de0)}
-  .dash-row{display:grid;grid-template-columns:1.4fr 1fr;gap:10px;margin-bottom:12px}
-  .chart-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:12px}
-  .chart-title{font-size:12.5px;font-weight:800;color:var(--navy);margin:0 0 10px}
-  .bars{display:flex;align-items:flex-end;gap:16px;height:150px;padding:0 6px}
-  .bar-group{flex:1;display:flex;align-items:flex-end;gap:4px;height:100%}
-  .bar{flex:1;border-radius:4px 4px 0 0;min-height:2px}
-  .bar.b-in{background:#4318FF}.bar.b-pu{background:#2eb872}.bar.b-ud{background:#e5484d}
-  .bar-x{display:flex;gap:16px;padding:5px 6px 0}
-  .bar-x span{flex:1;text-align:center;font-size:9px;color:var(--muted);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .legend{display:flex;gap:12px;font-size:10px;color:var(--muted);font-weight:700;margin-top:10px;flex-wrap:wrap}
-  .legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px}
-  .donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .donut-legend{flex:1;min-width:140px;display:flex;flex-direction:column;gap:6px;font-size:10.5px;font-weight:600;color:var(--muted)}
-  .donut-legend b{color:var(--navy)}
-  .recent-row{display:flex;justify-content:space-between;gap:10px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:11.5px;font-weight:600;flex-wrap:wrap}
-  .recent-row:last-child{border-bottom:none}
-  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
-  .dot.blue{background:#4318FF}.dot.green{background:#2eb872}.dot.red{background:#e5484d}
-  .summary-row{margin-bottom:9px}
-  .summary-head{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px}
-  .summary-track{height:7px;border-radius:99px;background:var(--bg);overflow:hidden}
-  .summary-fill{height:100%;border-radius:99px}
-  .ql-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .ql-btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px}
-  .ql-btn:hover{border-color:var(--blue);color:var(--blue)}
-  /* auth */
-  .login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;padding:24px;background:var(--bg)}
-  .boot-loader{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:600}
-  .login-card{max-width:410px;width:100%;display:flex;flex-direction:column;gap:13px;background:#fff;border-radius:18px;padding:32px 28px;box-shadow:var(--shadow)}
-  .login-logo{width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:flex;align-items:center;justify-content:center}
-  .login-title{font-weight:800;font-size:21px;margin:0;color:var(--navy)}
-  .login-sub{font-size:12.5px;color:var(--muted);font-weight:600}
-  .login-error{font-size:12px;color:var(--red);background:#fdeaea;border:1px solid var(--red);border-radius:9px;padding:9px 12px;font-weight:600}
-  .login-notice{font-size:12px;color:#157347;background:#e3f6ec;border:1px solid #157347;border-radius:9px;padding:9px 12px;font-weight:600}
-  .login-submit{justify-content:center}
-  .login-switch{background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0;text-align:left}
-  /* team grid */
-  .team-grid-container{display:flex;flex-direction:column;gap:20px}
-  .team-card{background:#fff;border-radius:16px;padding:20px;box-shadow:var(--shadow)}
-  .team-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;border-bottom:1px solid var(--line);padding-bottom:15px}
-  .team-admin-note{color:var(--muted);font-style:italic;font-size:13px}
-  .perm-grid{display:grid;grid-template-columns:2fr repeat(5,1fr);gap:10px;align-items:center}
-  .perm-header-cell{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;text-align:center}
-  .perm-header-cell:first-child{text-align:left}
-  .perm-module-name{font-weight:700;color:var(--navy);font-size:13px}
-  .perm-cell{display:flex;justify-content:center}
-  .perm-cell.empty{visibility:hidden}
-  .perm-checkbox{display:flex;justify-content:center;cursor:pointer}
-  .perm-checkbox input{width:18px;height:18px;accent-color:var(--blue);cursor:pointer}
-  .perm-checkbox input:disabled{opacity:0.3;cursor:not-allowed}
-  /* print */
-  @media print{.no-print{display:none !important}.rail{display:none !important}.main-area{padding:0}.page-head{box-shadow:none}}
-  /* responsive */
-  @media (max-width:980px){.dash-cards{grid-template-columns:1fr 1fr}.dash-row{grid-template-columns:1fr}}
-  @media (max-width:900px){
-    .app-layout{flex-direction:column}
-    .rail{position:static;height:auto;width:100%;flex-direction:row;align-items:center;padding:8px 10px;gap:6px;overflow-x:auto;box-shadow:none;border-right:none;border-bottom:1px solid #e6e8f5}
-    .rail-top{display:none}
-    .rail-nav{flex-direction:row;gap:4px;overflow:visible}
-    .rail-btn{width:auto;padding:8px 10px;white-space:nowrap}
-    .rail-chevron{display:none}
-    .rail-group{position:relative}
-    .rail-drop{display:block}
-    .rail-drop-inner{overflow:visible}
-    .rail-children{position:absolute;top:100%;left:0;margin:0;border-left:none;background:#fff;border:1px solid #e6e8f5;border-radius:10px;box-shadow:0 12px 30px rgba(23,50,77,.18);padding:6px;min-width:170px;z-index:60;display:none}
-    .rail-drop.open .rail-children{display:flex}
-    .rail-foot{margin:0;padding:0;border:none}
-  }
-  @media (max-width:640px){
-    .main-area{padding:12px 10px 26px}
-    .grid-2{grid-template-columns:1fr}
-    .filter-bar{flex-direction:column}
-    .dash-cards{grid-template-columns:1fr}
-    .edit-row input,.edit-row select{width:100%}
-    .builder-row .field{flex:1 1 40%}
-    .builder-add{margin-left:0;width:100%;justify-content:center}
-    .tbl-wrap .ledger-table{min-width:680px}
-    .entry2{padding:14px}
-    .modal-panel{max-width:100%}
-    .perm-grid{display:block}
-    .perm-module-name{display:block;margin-top:12px;margin-bottom:6px;font-weight:800}
-    .perm-checkbox,.perm-cell{display:inline-flex;width:40px;justify-content:center}
-    .perm-header-cell{display:none}
-  }
-  `}</style>);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box}
+:root{--navy:#1B2559;--blue:#4318FF;--blue2:#7551FF;--blue-soft:#EEEAFF;--red:#e5484d;--green:#2eb872;--amber:#f5a524;--bg:#eef2f6;--line:#e3e9f0;--text:#17324d;--muted:#7b8ba3;--shadow:0 4px 14px rgba(23,50,77,.08);--radius:12px}
+html,body,#root{height:100%;margin:0;padding:0;width:100%;background:var(--bg);color:var(--text);font-family:'Inter','Segoe UI',sans-serif;font-size:14px}
+input,textarea,select,button{font-family:inherit;color:var(--text)}
+.mono,.mono-tag{font-family:'JetBrains Mono',monospace}
+.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.app-shell{min-height:100vh}
+.loading-shell{display:flex;align-items:center;justify-content:center;gap:10px;padding:60px 0;color:var(--muted);font-weight:600}
+.app-layout{display:flex;min-height:100vh}
+.main-area{flex:1;min-width:0;padding:16px 20px 34px}
+.app-main{max-width:1240px;margin:0 auto}
+/* team & access */
+.team-grid-container{display:flex;flex-direction:column;gap:16px}
+.team-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line);padding:0}
+.team-card-top{display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,#fbfcff,#fff);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.team-avatar{width:44px;height:44px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;font-weight:800;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 6px 14px rgba(67,24,255,.25)}
+.team-id{flex:1;min-width:140px}
+.team-name{font-weight:800;font-size:14px;color:var(--navy)}
+.team-mail{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:1px}
+.role-seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px;gap:2px}
+.role-seg button{border:none;background:transparent;font-size:11.5px;font-weight:800;color:var(--muted);padding:6px 14px;border-radius:999px;cursor:pointer;transition:.15s}
+.role-seg button.on{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;box-shadow:0 4px 10px rgba(67,24,255,.3)}
+.team-save{display:flex;align-items:center;gap:8px}
+.dirty-dot{width:8px;height:8px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 3px rgba(245,165,36,.2)}
+.team-admin-note{margin:14px 20px 18px;display:flex;align-items:center;gap:10px;background:var(--blue-soft);border:1px solid rgba(67,24,255,.25);color:var(--blue);border-radius:12px;padding:10px 14px;font-size:12.5px;font-weight:700}
+.perm-presets{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--line);background:#fbfcff}
+.perm-presets>span:first-child{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.preset-btn{border:1px solid var(--line);background:#fff;border-radius:999px;font-size:11px;font-weight:700;color:var(--navy);padding:5px 12px;cursor:pointer;transition:.15s}
+.preset-btn:hover{border-color:var(--blue);color:var(--blue)}
+.perm-count{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);font-weight:700}
+.perm-list{display:flex;flex-direction:column}
+.perm-row{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--line);transition:background .15s;flex-wrap:wrap}
+.perm-row:last-child{border-bottom:none}
+.perm-row:hover{background:#fbfcff}
+.perm-row.off .perm-mod-ic,.perm-row.off .perm-mod-label,.perm-row.off .perm-mod-desc{opacity:.45}
+.perm-mod{display:flex;align-items:center;gap:12px;flex:1;min-width:190px}
+.perm-mod-ic{width:34px;height:34px;border-radius:10px;background:var(--blue-soft);color:var(--blue);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.perm-mod-label{font-weight:800;font-size:13px;color:var(--navy)}
+.perm-mod-desc{font-size:11px;color:var(--muted);font-weight:600;margin-top:1px}
+.perm-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.perm-chip{border:1px solid var(--line);background:#fff;border-radius:999px;font-size:11px;font-weight:800;color:var(--muted);padding:6px 13px;cursor:pointer;transition:.15s;text-transform:uppercase;letter-spacing:.04em}
+.perm-chip:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.perm-chip.on{background:var(--blue-soft);border-color:rgba(67,24,255,.4);color:var(--blue)}
+.perm-chip:disabled{opacity:.35;cursor:not-allowed}
+.perm-none{font-size:11px;color:var(--muted);font-style:italic}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.switch input{display:none}
+.switch-track{width:38px;height:22px;border-radius:999px;background:#d7dcea;position:relative;transition:.2s;flex-shrink:0}
+.switch-thumb{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 2px 5px rgba(0,0,0,.2)}
+.switch input:checked + .switch-track{background:linear-gradient(135deg,var(--blue),var(--blue2))}
+.switch input:checked + .switch-track .switch-thumb{left:19px}
+.switch-label{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+/* sidebar */
+.rail{width:248px;flex-shrink:0;background:linear-gradient(180deg,#fff 0%,#f7f8ff 100%);border-right:1px solid #e6e8f5;display:flex;flex-direction:column;padding:12px 10px;gap:3px;position:sticky;top:0;height:100vh;z-index:30;box-shadow:4px 0 24px rgba(23,50,77,.06)}
+.rail-top{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid #eceef8;margin-bottom:8px}
+.rail-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 8px 18px rgba(67,24,255,.35)}
+.rail-brand-title{font-size:14px;font-weight:800;color:var(--navy);white-space:nowrap}
+.rail-brand-sub{font-size:9.5px;color:var(--blue2);font-weight:800;text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
+.rail-nav{display:flex;flex-direction:column;gap:2px;flex:1;overflow-y:auto}
+.rail-group{display:flex;flex-direction:column;gap:2px}
+.rail-btn{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border-radius:10px;border:none;background:transparent;color:#5a6b8c;font-size:13px;font-weight:700;cursor:pointer;text-align:left;transition:.15s}
+.rail-label{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rail-chevron{opacity:.6;flex-shrink:0;transition:.15s}.rail-chevron.open{transform:rotate(90deg)}
+.rail-btn:hover{background:var(--blue-soft);color:var(--blue)}
+.rail-btn.active{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;box-shadow:0 6px 16px rgba(67,24,255,.28)}
+.rail-btn.active .rail-chevron{color:#fff}
+.rail-drop{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.4,0,.2,1)}
+.rail-drop.open{grid-template-rows:1fr}
+.rail-drop-inner{overflow:hidden;min-height:0}
+.rail-children{margin:1px 0 4px 16px;border-left:2px solid #e6e8f5;padding-left:8px;display:flex;flex-direction:column;gap:1px}
+.rail-child{border:none;background:transparent;text-align:left;font-size:12px;font-weight:600;color:#7b8ba3;padding:7px 10px;border-radius:8px;cursor:pointer;transition:.12s}
+.rail-child:hover{color:var(--blue);background:var(--blue-soft)}
+.rail-child.active{color:var(--blue);background:var(--blue-soft);font-weight:800;box-shadow:inset 0 0 0 1px rgba(67,24,255,.25)}
+.rail-foot{margin-top:auto;padding-top:8px;border-top:1px solid #eceef8}
+.rail-signout:hover{background:#fdeaea;color:var(--red)}
+/* header */
+.page-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:#fff;border-radius:var(--radius);padding:10px 16px;box-shadow:var(--shadow);margin-bottom:12px}
+.page-head h1{font-size:19px;font-weight:800;margin:0;color:var(--navy)}
+.page-sub{color:var(--muted);font-size:11.5px;margin-top:2px;font-weight:600}
+.user-chip{display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:12px;padding:6px 12px 6px 6px}
+.user-avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
+.user-mail{font-size:12px;font-weight:700}
+.user-role{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:800}
+/* generic */
+.section-head{margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.section-head h2{font-weight:800;font-size:15px;margin:0;color:var(--navy)}
+.sub-heading{font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px;letter-spacing:.07em}
+.btn{font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--navy);cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:var(--shadow)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border-color:transparent}
+.icon-btn{border:none;background:transparent;color:var(--muted);cursor:pointer;padding:6px;border-radius:8px;display:inline-flex}
+.icon-btn:hover:not(:disabled){background:var(--blue-soft);color:var(--blue)}
+.icon-btn:disabled{opacity:.3;cursor:not-allowed}
+.field{display:flex;flex-direction:column;gap:5px;font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.07em}
+.field input,.field select{font-family:'JetBrains Mono',monospace;font-size:12.5px;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;width:100%}
+.search-input{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:0 10px;min-width:180px}
+.search-input input{border:none;padding:8px 0;background:transparent;width:100%;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.search-input input:focus{outline:none}
+.sort-control{display:flex;gap:6px}
+.sort-control select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:#fff}
+.sort-dir-btn{white-space:nowrap}
+.stamp{font-family:'JetBrains Mono',monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:3px 9px;border-radius:999px;white-space:nowrap;display:inline-block;font-weight:700}
+.stamp-green{color:#157347;background:#e3f6ec}.stamp-rust{color:var(--red);background:#fdeaea}.stamp-gray{color:var(--muted);background:#eef1f5}.stamp-amber{color:#8a5b00;background:#fdf1d7}
+.entry-tag{background:var(--blue-soft);color:var(--blue);padding:3px 8px;border-radius:7px;font-size:10px;font-weight:800}
+.info-banner{background:var(--blue-soft);border:1px solid rgba(67,24,255,.3);color:var(--blue);border-radius:10px;padding:9px 13px;font-size:12px;font-weight:600;margin-bottom:10px}
+.notice-warn{background:#fdf1d7;border:1px solid var(--amber);color:#8a5b00;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:600;margin:8px 0}
+/* forms */
+.ticket-form{background:#fff;border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow)}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.computed{font-size:12.5px;color:var(--muted);font-weight:600}.computed b{color:var(--navy);font-family:'JetBrains Mono',monospace}
+.form-actions{display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.checkbox-field{display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer}
+.checkbox-field input{accent-color:var(--blue)}
+.entry2{background:#fff;border-radius:16px;box-shadow:var(--shadow);padding:18px;margin-bottom:12px;display:flex;flex-direction:column;gap:14px}
+.entry2-head{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.entry2-head .field{flex:1;min-width:180px}
+.builder{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.builder-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.builder-desc{flex:2;min-width:220px}
+.builder-row .field{flex:0 0 110px}
+.builder-add{flex:0 0 auto;margin-left:auto}
+.builder-chips{display:flex;gap:8px;flex-wrap:wrap}
+.b-chip{font-size:11px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 12px}
+.b-chip b{color:var(--blue);font-family:'JetBrains Mono',monospace;margin-left:5px}
+.lines-box{display:flex;flex-direction:column;gap:8px}
+.lines-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800}
+.lines-total{display:flex;gap:18px;justify-content:flex-end;flex-wrap:wrap;background:var(--blue-soft);border:1px solid rgba(67,24,255,.25);color:var(--blue);border-radius:10px;padding:9px 14px;font-size:12px;font-weight:800}
+.lines-total .mono{font-family:'JetBrains Mono',monospace}
+/* lists & cards */
+.list{display:flex;flex-direction:column}
+.panel-list{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:4px 14px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;gap:12px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:none}
+.row-title{font-weight:700;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--navy)}
+.row-sub{font-size:11px;color:var(--muted);margin-top:2px;font-weight:600}
+.row-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.edit-row{display:flex;gap:6px;flex:1;align-items:center;flex-wrap:wrap}
+.edit-row input,.edit-row select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:7px;border:1.5px solid var(--blue);border-radius:8px;width:auto;min-width:88px;background:#fff}
+.entry-card{border-radius:12px;margin-bottom:8px;overflow:hidden;background:#fff;box-shadow:var(--shadow)}
+.entry-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;cursor:pointer}
+.entry-card-head:hover{background:var(--bg)}
+.entry-card-title{display:flex;align-items:center;gap:8px;font-size:12.5px;flex-wrap:wrap;font-weight:600}
+.entry-card-body{padding:8px 14px 10px;border-top:1px solid var(--line)}
+.entry-date-edit{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.entry-date-edit input,.entry-date-edit select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:5px 7px;border:1px solid var(--line);border-radius:7px}
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(27,37,89,.45);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-panel{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(27,37,89,.35);width:100%;max-width:860px;max-height:88vh;display:flex;flex-direction:column}
+.modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.modal-head h3{margin:0;font-size:14px;font-weight:800;color:var(--navy)}
+.modal-body{padding:14px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.modal-sub{margin:0 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800}
+/* tables */
+.tbl-wrap{overflow-x:auto;border-radius:10px}
+.date-block{margin-bottom:12px}
+.date-block-head{font-family:'JetBrains Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;background:var(--navy);color:#fff;padding:7px 14px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.date-block-head span{color:rgba(255,255,255,.65);text-transform:none;letter-spacing:0;font-weight:500}
+.ledger-table{width:100%;border-collapse:collapse;font-size:12px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+.ledger-table th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800;padding:7px 10px;border-bottom:1px solid var(--line);background:#f8fafc}
+.ledger-table td{padding:7px 10px;border-bottom:1px solid var(--line)}
+.ledger-table tr:last-child td{border-bottom:none}
+.ledger-table td.mono{font-family:'JetBrains Mono',monospace}
+.ledger-table tfoot td{font-weight:800;border-top:2px solid var(--navy);border-bottom:none;font-family:'JetBrains Mono',monospace;background:#f8fafc}
+tr.row-hot td{background:#fdf1d7}tr.row-over td{background:#fdeaea}
+.tbl-input{width:100px;font-family:'JetBrains Mono',monospace;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+.filter-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;background:#fff;border-radius:var(--radius);padding:10px 12px;box-shadow:var(--shadow)}
+.report-grand-total{display:flex;gap:20px;align-items:center;justify-content:flex-end;flex-wrap:wrap;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;border-radius:12px;padding:11px 18px;margin-top:8px;font-size:12.5px;font-weight:700}
+.report-grand-total .mono{font-family:'JetBrains Mono',monospace;font-size:13px}
+.empty-row{padding:18px 4px;color:var(--muted);font-size:12.5px;border:1.5px dashed var(--line);border-radius:12px;text-align:center;font-weight:600;background:#fff}
+.locked-panel{display:flex;align-items:flex-start;gap:10px;padding:14px;border:1px solid var(--red);background:#fdeaea;border-radius:12px;color:var(--red);font-size:12.5px;line-height:1.5;font-weight:600}
+/* dashboard */
+.dash-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.stat-card{border-radius:12px;padding:12px;color:#fff;display:flex;gap:10px;align-items:center;box-shadow:var(--shadow)}
+.stat-card .ic{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.stat-card .l{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;opacity:.92}
+.stat-card .v{font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700;margin-top:1px}
+.stat-card .s{font-size:10px;font-weight:600;opacity:.85;margin-top:1px}
+.stat-card.blue{background:linear-gradient(135deg,#4318FF,#1e63c4)}
+.stat-card.red{background:linear-gradient(135deg,#f0646a,#e5484d)}
+.stat-card.green{background:linear-gradient(135deg,#3cc98a,#1f9d5d)}
+.stat-card.purple{background:linear-gradient(135deg,#8b6cff,#5f3de0)}
+.dash-row{display:grid;grid-template-columns:1.4fr 1fr;gap:10px;margin-bottom:12px}
+.chart-card{background:#fff;border-radius:12px;box-shadow:var(--shadow);padding:12px}
+.chart-title{font-size:12.5px;font-weight:800;color:var(--navy);margin:0 0 10px}
+.bars{display:flex;align-items:flex-end;gap:16px;height:150px;padding:0 6px}
+.bar-group{flex:1;display:flex;align-items:flex-end;gap:4px;height:100%}
+.bar{flex:1;border-radius:4px 4px 0 0;min-height:2px}
+.bar.b-in{background:#4318FF}.bar.b-pu{background:#2eb872}.bar.b-ud{background:#e5484d}
+.bar-x{display:flex;gap:16px;padding:5px 6px 0}
+.bar-x span{flex:1;text-align:center;font-size:9px;color:var(--muted);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.legend{display:flex;gap:12px;font-size:10px;color:var(--muted);font-weight:700;margin-top:10px;flex-wrap:wrap}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px}
+.donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.donut-legend{flex:1;min-width:140px;display:flex;flex-direction:column;gap:6px;font-size:10.5px;font-weight:600;color:var(--muted)}
+.donut-legend b{color:var(--navy)}
+.recent-row{display:flex;justify-content:space-between;gap:10px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:11.5px;font-weight:600;flex-wrap:wrap}
+.recent-row:last-child{border-bottom:none}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot.blue{background:#4318FF}.dot.green{background:#2eb872}.dot.red{background:#e5484d}
+.summary-row{margin-bottom:9px}
+.summary-head{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.summary-track{height:7px;border-radius:99px;background:var(--bg);overflow:hidden}
+.summary-fill{height:100%;border-radius:99px}
+.ql-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ql-btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px}
+.ql-btn:hover{border-color:var(--blue);color:var(--blue)}
+/* auth */
+.login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;padding:24px;background:var(--bg)}
+.boot-loader{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:600}
+.login-card{max-width:410px;width:100%;display:flex;flex-direction:column;gap:13px;background:#fff;border-radius:18px;padding:32px 28px;box-shadow:var(--shadow)}
+.login-logo{width:50px;height:50px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:flex;align-items:center;justify-content:center}
+.login-title{font-weight:800;font-size:21px;margin:0;color:var(--navy)}
+.login-sub{font-size:12.5px;color:var(--muted);font-weight:600}
+.login-error{font-size:12px;color:var(--red);background:#fdeaea;border:1px solid var(--red);border-radius:9px;padding:9px 12px;font-weight:600}
+.login-notice{font-size:12px;color:#157347;background:#e3f6ec;border:1px solid #157347;border-radius:9px;padding:9px 12px;font-weight:600}
+.login-submit{justify-content:center}
+.login-switch{background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0;text-align:left}
+/* print */
+@media print{.no-print{display:none !important}.rail{display:none !important}.main-area{padding:0}.page-head{box-shadow:none}}
+/* responsive */
+@media (max-width:980px){.dash-cards{grid-template-columns:1fr 1fr}.dash-row{grid-template-columns:1fr}}
+@media (max-width:900px){
+.app-layout{flex-direction:column}
+.rail{position:static;height:auto;width:100%;flex-direction:row;align-items:center;padding:8px 10px;gap:6px;overflow-x:auto;box-shadow:none;border-right:none;border-bottom:1px solid #e6e8f5}
+.rail-top{display:none}
+.rail-nav{flex-direction:row;gap:4px;overflow:visible}
+.rail-btn{width:auto;padding:8px 10px;white-space:nowrap}
+.rail-chevron{display:none}
+.rail-group{position:relative}
+.rail-drop{display:block}
+.rail-drop-inner{overflow:visible}
+.rail-children{position:absolute;top:100%;left:0;margin:0;border-left:none;background:#fff;border:1px solid #e6e8f5;border-radius:10px;box-shadow:0 12px 30px rgba(23,50,77,.18);padding:6px;min-width:170px;z-index:60;display:none}
+.rail-drop.open .rail-children{display:flex}
+.rail-foot{margin:0;padding:0;border:none}
+}
+@media (max-width:640px){
+.main-area{padding:12px 10px 26px}
+.grid-2{grid-template-columns:1fr}
+.filter-bar{flex-direction:column}
+.dash-cards{grid-template-columns:1fr}
+.edit-row input,.edit-row select{width:100%}
+.builder-row .field{flex:1 1 40%}
+.builder-add{margin-left:0;width:100%;justify-content:center}
+.tbl-wrap .ledger-table{min-width:680px}
+.entry2{padding:14px}
+.modal-panel{max-width:100%}
+.team-card-top{padding:14px}
+.perm-presets{padding:10px 14px}
+.perm-row{padding:12px 14px}
+.perm-mod{min-width:100%}
+.team-admin-note{margin:12px 14px 14px}
+}
+`}</style>);
 }
