@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 import {
   LayoutDashboard, ClipboardList, Boxes, Receipt, PackageCheck, Truck,
   Plus, Trash2, Pencil, Check, X, Printer, Search, ChevronDown, ChevronRight,
-  Loader2, Lock, LogOut, Users, ArrowUpDown
+  Loader2, Lock, LogOut, Users, ArrowUpDown, Download
 } from "lucide-react";
 
 /* ================= Supabase ================= */
@@ -135,6 +137,82 @@ function printHTML(title, bodyHtml) {
   doc.close();
   setTimeout(() => { iframe.contentWindow.focus(); iframe.contentWindow.print(); setTimeout(() => { if (iframe.parentNode) document.body.removeChild(iframe); }, 1000); }, 250);
 }
+/* Download real, searchable, paginated PDF reports. */
+function downloadReportFile(title, bodyHtml) {
+  try {
+    const source = new DOMParser().parseFromString(bodyHtml, "text/html");
+    const saleBase = title === "Sale Base Stock";
+    const pdf = new jsPDF({ orientation: saleBase ? "portrait" : "landscape", unit: "mm", format: "a4" });
+    const margin = saleBase ? 8 : 12;
+    const width = pdf.internal.pageSize.getWidth();
+    const height = pdf.internal.pageSize.getHeight();
+    const clean = (text) => String(text || "").replace(/\u2212/g, "-").replace(/\u202f|\u00a0/g, " ");
+    let y = 18;
+    const addText = (text, size, bold = false) => {
+      pdf.setFont("helvetica", bold ? "bold" : "normal");
+      pdf.setFontSize(size);
+      pdf.setTextColor(27, 37, 89);
+      const lines = pdf.splitTextToSize(clean(text), width - margin * 2);
+      for (const line of lines) {
+        if (y > height - 20) { pdf.addPage(); y = 18; }
+        pdf.text(line, margin, y);
+        y += size * 0.45;
+      }
+      y += 3;
+    };
+    addText(title, 17, true);
+    addText(`Downloaded ${new Date().toLocaleString("en-GB")}`, 9);
+    for (const element of source.body.children) {
+      if (element.tagName !== "TABLE") {
+        if (element.textContent.trim()) addText(element.textContent, 11, /^H[1-6]$/.test(element.tagName));
+        continue;
+      }
+      if (y > height - 35) { pdf.addPage(); y = 18; }
+      autoTable(pdf, {
+        html: element,
+        includeHiddenHtml: true,
+        startY: y,
+        margin: { top: 12, right: margin, bottom: 16, left: margin },
+        theme: saleBase ? "grid" : "striped",
+        styles: { font: "helvetica", fontSize: saleBase ? 7 : 8, cellPadding: saleBase ? 1.5 : 2.5, overflow: "linebreak", textColor: [23, 50, 77], ...(saleBase ? { lineWidth: 0.15, lineColor: [180, 188, 205], valign: "middle" } : {}) },
+        ...(saleBase ? { columnStyles: {
+          0: { cellWidth: 56 },
+          1: { cellWidth: 19, halign: "center" },
+          2: { cellWidth: 20, halign: "center" },
+          3: { cellWidth: 15, halign: "center" },
+          4: { cellWidth: 28, halign: "center" },
+          5: { cellWidth: 25, halign: "right" },
+          6: { cellWidth: 31, halign: "right" },
+        } } : {}),
+        headStyles: { fillColor: [67, 24, 255], textColor: 255, fontStyle: "bold" },
+        footStyles: { fillColor: [238, 234, 255], textColor: [67, 24, 255], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [248, 249, 255] },
+        showHead: "everyPage",
+        showFoot: "lastPage",
+        rowPageBreak: "avoid",
+        didParseCell: (data) => {
+          data.cell.text = data.cell.text.map(clean);
+          const row = data.cell.raw?.parentElement;
+          if (row?.classList.contains("hot")) data.cell.styles.fillColor = [253, 241, 215];
+          if (row?.classList.contains("over")) data.cell.styles.fillColor = [253, 234, 234];
+        },
+      });
+      y = pdf.lastAutoTable.finalY + 8;
+    }
+    const pages = pdf.getNumberOfPages();
+    for (let page = 1; page <= pages; page++) {
+      pdf.setPage(page);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+      pdf.setTextColor(110);
+      pdf.text(`Page ${page} of ${pages}`, width - margin, height - 7, { align: "right" });
+    }
+    pdf.save((title.replace(/[^\w\-]+/g, "_") || "Report") + ".pdf");
+  } catch (error) {
+    console.error("PDF export failed", error);
+    window.alert("PDF download failed: " + (error.message || "Please try again."));
+  }
+}
 
 /* ================= nav ================= */
 const NAV_GROUPS = [
@@ -178,7 +256,7 @@ const groupForView = (view) => { const g = NAV_GROUPS.find((g) => g.children && 
 function Rail({ view, setView, isAdmin, onSignOut, permissions }) {
   const activeGroup = view === "dashboard" ? "dashboard" : view === "team" ? "team" : groupForView(view);
   const groupPermMap = { dashboard: "dashboard", masters: "masters", "pkt-in": "pktIn", purchases: "purchases", udhaar: "udhaar", stock: "stock" };
-  const canViewModule = (moduleId) => { if (isAdmin) return true; return permissions?.[moduleId]?.view === true; };
+  const canViewModule = (moduleId) => { if (isAdmin) return true; return !!(permissions && permissions[moduleId] && permissions[moduleId].view === true); };
   const filteredGroups = NAV_GROUPS.filter((g) => canViewModule(groupPermMap[g.id]));
   const groups = isAdmin ? [...filteredGroups, { id: "team", label: "Team & access", icon: Users, view: "team" }] : filteredGroups;
   const [openId, setOpenId] = useState(activeGroup);
@@ -232,8 +310,16 @@ const Stamp = ({ children, tone = "gray" }) => <span className={`stamp stamp-${t
 const Field = ({ label, children }) => <label className="field"><span>{label}</span>{children}</label>;
 const EmptyRow = ({ children }) => <div className="empty-row">{children}</div>;
 const LockedNote = ({ text }) => <div className="locked-panel"><Lock size={15} /><span>{text || "You don't have permission to view this."}</span></div>;
-const SectionHead = ({ title, onPrint }) => (
-  <div className="section-head"><h2>{title}</h2>{onPrint && <button className="btn no-print" onClick={onPrint}><Printer size={14} /> Print</button>}</div>
+const SectionHead = ({ title, onPrint, onDownload }) => (
+  <div className="section-head">
+    <h2>{title}</h2>
+    {(onPrint || onDownload) && (
+      <div style={{ display: "flex", gap: 8 }}>
+        {onDownload && <button className="btn no-print download-btn" onClick={onDownload}><Download size={14} /> Download</button>}
+        {onPrint && <button className="btn no-print" onClick={onPrint}><Printer size={14} /> Print</button>}
+      </div>
+    )}
+  </div>
 );
 function SortControl({ value, onChange, options }) {
   return (
@@ -272,7 +358,10 @@ function DescPicker({ ctx, value, onChange, placeholder, apiRef }) {
   const q = query.trim().toLowerCase();
   const list = ctx.descriptions.filter((d) => d.active !== false && (!q || ctx.descLabel(d).toLowerCase().includes(q)));
   const place = () => { if (boxRef.current) setRect(boxRef.current.getBoundingClientRect()); };
-  useEffect(() => { if (apiRef) { apiRef.current = () => { setOpen(true); setQuery(""); }; } return () => { if (apiRef) apiRef.current = null; }; }, [apiRef]);
+  useEffect(() => {
+    if (apiRef) apiRef.current = () => { setOpen(true); setQuery(""); };
+    return () => { if (apiRef) apiRef.current = null; };
+  }, [apiRef]);
   useEffect(() => { if (open) place(); }, [open]);
   useEffect(() => { if (open && rect && searchRef.current) searchRef.current.focus(); }, [open, rect]);
   useEffect(() => {
@@ -357,8 +446,24 @@ function DescPicker({ ctx, value, onChange, placeholder, apiRef }) {
 function NameListEditor({ title, items, setItems, withContact, placeholder, canManage, isAdmin, blockedIds = [] }) {
   const [name, setName] = useState(""); const [contact, setContact] = useState("");
   const [editId, setEditId] = useState(null); const [en, setEn] = useState(""); const [ec, setEc] = useState("");
-  const add = () => { if (!name.trim()) return; setItems([...items, { id: uid(), name: name.trim(), contact: contact.trim() || null }]); setName(""); setContact(""); };
-  const save = () => { if (!en.trim()) return; setItems(items.map((it) => it.id === editId ? { ...it, name: en.trim(), contact: ec.trim() || null } : it)); setEditId(null); };
+  const add = () => {
+    if (!name.trim()) return;
+    const item = { id: uid(), name: name.trim() };
+    if (withContact) item.contact = contact.trim() || null;
+    setItems([...items, item]);
+    setName(""); setContact("");
+  };
+  const save = () => {
+    if (!en.trim()) return;
+    setItems(items.map((it) => {
+      if (it.id !== editId) return it;
+      const item = { ...it, name: en.trim() };
+      if (withContact) item.contact = ec.trim() || null;
+      else delete item.contact;
+      return item;
+    }));
+    setEditId(null);
+  };
   const remove = (id) => { if (blockedIds.includes(id)) return; if (!confirmDelete(title.slice(0, -1))) return; setItems(items.filter((it) => it.id !== id)); };
   return (
     <div>
@@ -628,7 +733,7 @@ function useInBatches(ctx) {
 function PktInEntriesTab({ ctx }) {
   const batches = useInBatches(ctx);
   const [expanded, setExpanded] = useState(null);
-  const canAdd = ctx.can("canAddEntries");
+  const canAdd = ctx.canModule("pktIn", "add");
   return (
     <div>
       <SectionHead title="Add PKT In (stock in)" />
@@ -698,7 +803,7 @@ function ManageInModal({ ctx, batch, onClose }) {
   );
 }
 function PktInEditTab({ ctx }) {
-  const canEdit = ctx.can("canEditEntries"), canDelete = ctx.can("canDeleteEntries");
+  const canEdit = ctx.canModule("pktIn", "edit"), canDelete = ctx.canModule("pktIn", "delete");
   const { pktIn, persist, supplierName, suppliers } = ctx;
   const allBatches = useInBatches(ctx);
   const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
@@ -797,7 +902,7 @@ function PktInReportView({ ctx }) {
   const { pktIn, inLabel, supplierName, suppliers } = ctx;
   const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [sup, setSup] = useState("");
   const [sort, setSort] = useState({ field: "date", dir: "desc" });
-  if (!ctx.can("canViewReports")) return <LockedNote />;
+  if (!ctx.canModule("pktIn", "report")) return <LockedNote />;
   const filtered = pktIn.filter((r) => {
     if (sup && r.supplierId !== sup) return false;
     if (from && r.date < from) return false; if (to && r.date > to) return false;
@@ -807,7 +912,7 @@ function PktInReportView({ ctx }) {
   const getters = { pkts: (r) => N(r.totalPkts), weight: (r) => N(r.weight), plts: (r) => N(r.plts) };
   const groups = sortGroups(groupByDate(filtered), sort, getters);
   const gP = filtered.reduce((a, r) => a + N(r.totalPkts), 0), gW = filtered.reduce((a, r) => a + N(r.weight), 0);
-  const doPrint = () => {
+  const bodyHtml = () => {
     let html = "";
     groups.forEach(([d, rs]) => {
       html += `<h2>${esc(fmtDate(d))}</h2><table><thead><tr><th>Entry</th><th>Description</th><th>Supplier</th><th>PLTs</th><th>Pkts/PLT</th><th>Total PKTs</th><th>Weight</th></tr></thead><tbody>`;
@@ -815,11 +920,11 @@ function PktInReportView({ ctx }) {
       html += `</tbody><tfoot><tr><td colspan="5">${rs.length} line(s)</td><td>${num(rs.reduce((a, r) => a + N(r.totalPkts), 0), 0)}</td><td>${num(rs.reduce((a, r) => a + N(r.weight), 0))}</td></tr></tfoot></table>`;
     });
     html += `<h2>Grand total</h2><table><tbody><tr><td>Pkts</td><td>${num(gP, 0)}</td></tr><tr><td>Weight</td><td>${num(gW)} kg</td></tr></tbody></table>`;
-    printHTML("PKT In report", html || "<p>No entries.</p>");
+    return html;
   };
   return (
     <div>
-      <SectionHead title="PKT In report" onPrint={doPrint} />
+      <SectionHead title="PKT In report" onPrint={() => printHTML("PKT In report", bodyHtml() || "<p>No entries.</p>")} onDownload={() => downloadReportFile("PKT In report", bodyHtml() || "<p>No entries.</p>")} />
       <div className="filter-bar no-print">
         <Field label="Search"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
         <Field label="Supplier"><select value={sup} onChange={(e) => setSup(e.target.value)}><option value="">All</option>{suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
@@ -895,7 +1000,7 @@ function usePuBatches(ctx) {
 function PurchaseEntriesTab({ ctx }) {
   const batches = usePuBatches(ctx);
   const [expanded, setExpanded] = useState(null);
-  const canAdd = ctx.can("canAddEntries");
+  const canAdd = ctx.canModule("purchases", "add");
   return (
     <div>
       <SectionHead title="Record purchases" />
@@ -971,7 +1076,7 @@ function ManagePuModal({ ctx, batch, onClose }) {
   );
 }
 function PurchaseEditTab({ ctx }) {
-  const canEdit = ctx.can("canEditEntries"), canDelete = ctx.can("canDeleteEntries");
+  const canEdit = ctx.canModule("purchases", "edit"), canDelete = ctx.canModule("purchases", "delete");
   const { purchases, persist } = ctx;
   const allBatches = usePuBatches(ctx);
   const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
@@ -1087,7 +1192,7 @@ function PurchaseReportView({ ctx }) {
   const { purchases, puLabel } = ctx;
   const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
   const [sort, setSort] = useState({ field: "date", dir: "desc" });
-  if (!ctx.can("canViewReports")) return <LockedNote />;
+  if (!ctx.canModule("purchases", "report")) return <LockedNote />;
   const filtered = purchases.filter((r) => {
     if (from && r.date < from) return false; if (to && r.date > to) return false;
     if (q.trim() && !`${puLabel.get(r.batchId)} ${tightDesc(r.descriptionSnapshot)}`.toLowerCase().includes(q.toLowerCase())) return false;
@@ -1096,7 +1201,7 @@ function PurchaseReportView({ ctx }) {
   const getters = { pkts: (r) => N(r.totalPkts), weight: (r) => N(r.weight), amount: (r) => N(r.totalAmount), rate: (r) => N(r.rate) };
   const groups = sortGroups(groupByDate(filtered), sort, getters);
   const gW = filtered.reduce((a, r) => a + N(r.weight), 0), gA = filtered.reduce((a, r) => a + N(r.totalAmount), 0);
-  const doPrint = () => {
+  const bodyHtml = () => {
     let html = "";
     groups.forEach(([d, rs]) => {
       html += `<h2>${esc(fmtDate(d))}</h2><table><thead><tr><th>Entry</th><th>Description</th><th>PLTs</th><th>Pkts</th><th>Weight</th><th>Rate/kg</th><th>Amount</th></tr></thead><tbody>`;
@@ -1104,11 +1209,11 @@ function PurchaseReportView({ ctx }) {
       html += `</tbody><tfoot><tr><td colspan="4">${rs.length} line(s)</td><td>${num(rs.reduce((a, r) => a + N(r.weight), 0))}</td><td></td><td>${money(rs.reduce((a, r) => a + N(r.totalAmount), 0))}</td></tr></tfoot></table>`;
     });
     html += `<h2>Grand total</h2><table><tbody><tr><td>Weight</td><td>${num(gW)} kg</td></tr><tr><td>Amount</td><td>${money(gA)}</td></tr></tbody></table>`;
-    printHTML("Purchase report", html || "<p>No entries.</p>");
+    return html;
   };
   return (
     <div>
-      <SectionHead title="Purchase report (minus from stock)" onPrint={doPrint} />
+      <SectionHead title="Purchase report (minus from stock)" onPrint={() => printHTML("Purchase report", bodyHtml() || "<p>No entries.</p>")} onDownload={() => downloadReportFile("Purchase report", bodyHtml() || "<p>No entries.</p>")} />
       <div className="filter-bar no-print">
         <Field label="Search"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
         <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
@@ -1221,7 +1326,7 @@ function useUdhaarBatches(ctx) {
 function UdhaarEntriesTab({ ctx }) {
   const batches = useUdhaarBatches(ctx);
   const [expanded, setExpanded] = useState(null);
-  const canAdd = ctx.can("canAddEntries");
+  const canAdd = ctx.canModule("udhaar", "add");
   return (
     <div>
       <SectionHead title="Add udhaar entry" />
@@ -1318,7 +1423,7 @@ function ManageUdhaarModal({ ctx, batch, onClose }) {
   );
 }
 function UdhaarEditTab({ ctx }) {
-  const canEdit = ctx.can("canEditEntries"), canDelete = ctx.can("canDeleteEntries");
+  const canEdit = ctx.canModule("udhaar", "edit"), canDelete = ctx.canModule("udhaar", "delete");
   const { udhaar, persist } = ctx;
   const allBatches = useUdhaarBatches(ctx);
   const [q, setQ] = useState(""); const [from, setFrom] = useState(""); const [to, setTo] = useState("");
@@ -1419,7 +1524,7 @@ function UdhaarEditTab({ ctx }) {
 }
 function UdhaarTableView({ ctx }) {
   const { descriptions, udhaar, persist, stockMap, descLabel, pktWeight } = ctx;
-  const canEdit = ctx.can("canEditEntries");
+  const canEdit = ctx.canModule("udhaar", "edit");
   const [q, setQ] = useState("");
   const [onlyStock, setOnlyStock] = useState(false);
   const [draft, setDraft] = useState({});
@@ -1517,7 +1622,7 @@ function UdhaarReportView({ ctx }) {
   const { udhaar, stockMap, descriptions } = ctx;
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ field: "description", dir: "asc" });
-  if (!ctx.can("canViewReports")) return <LockedNote />;
+  if (!ctx.canModule("udhaar", "report")) return <LockedNote />;
   const balMap = useMemo(() => {
     const m = new Map();
     udhaar.forEach((u) => {
@@ -1552,7 +1657,7 @@ function UdhaarReportView({ ctx }) {
     if (r.pkts > r.perPlt) return "hot";
     return "";
   };
-  const doPrint = () => {
+  const bodyHtml = () => {
     let html = `<table><thead><tr><th>Description</th><th>Pkts/PLT</th><th>Udhaar PKTs</th><th>Godown</th><th>Available</th><th>Weight</th><th>Suggest</th><th>Updated</th></tr></thead><tbody>`;
     rows.forEach((r) => {
       const godown = stockMap.get(r.descriptionId)?.godownPkts || 0;
@@ -1561,11 +1666,11 @@ function UdhaarReportView({ ctx }) {
       html += `<tr class="${fl}"><td>${esc(r.description)}</td><td>${num(r.perPlt, 0)}</td><td>${num(r.pkts, 0)}</td><td>${num(godown, 0)}</td><td>${num(godown - r.pkts, 0)}</td><td>${num(r.weight)}</td><td>${sug > 0 ? sug + " PLT" : ""}</td><td>${esc(fmtDate(r.date))}</td></tr>`;
     });
     html += `</tbody><tfoot><tr><td colspan="2">${rows.length} item(s)</td><td>${num(gP, 0)}</td><td></td><td></td><td>${num(gW)}</td><td></td><td></td></tr></tfoot></table>`;
-    printHTML("Udhaar report", html || "<p>No udhaar.</p>");
+    return html;
   };
   return (
     <div>
-      <SectionHead title="Udhaar report" onPrint={doPrint} />
+      <SectionHead title="Udhaar report" onPrint={() => printHTML("Udhaar report", bodyHtml() || "<p>No udhaar.</p>")} onDownload={() => downloadReportFile("Udhaar report", bodyHtml() || "<p>No udhaar.</p>")} />
       <div className="filter-bar no-print">
         <Field label="Search item"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
         <SortControl value={sort} onChange={setSort} options={[{ value: "description", label: "Description" }, { value: "pkts", label: "Udhaar PKTs" }, { value: "godown", label: "Godown" }, { value: "available", label: "Available" }, { value: "weight", label: "Weight" }]} />
@@ -1605,20 +1710,20 @@ function StockReportTab({ ctx }) {
   const { pktStock } = ctx;
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ field: "description", dir: "asc" });
-  if (!ctx.can("canViewReports")) return <LockedNote />;
+  if (!ctx.canModule("stock", "report")) return <LockedNote />;
   const base = pktStock.filter((r) => !q.trim() || r.description.toLowerCase().includes(q.toLowerCase()));
   const getters = { description: (r) => r.description, plts: (r) => r.totalPlts, pkts: (r) => r.totalPkts, purchase: (r) => r.purPkts, udhaar: (r) => r.udPkts, available: (r) => r.availablePkts, weight: (r) => r.totalWeight };
   const rows = sortRows(base, sort, getters);
   const T = rows.reduce((a, r) => ({ plts: a.plts + r.totalPlts, pkts: a.pkts + r.totalPkts, pur: a.pur + r.purPkts, ud: a.ud + r.udPkts, av: a.av + r.availablePkts, wt: a.wt + r.totalWeight, wtAv: a.wtAv + r.availableWeight }), { plts: 0, pkts: 0, pur: 0, ud: 0, av: 0, wt: 0, wtAv: 0 });
-  const doPrint = () => {
+  const bodyHtml = () => {
     let html = `<table><thead><tr><th>Description</th><th>PLTs</th><th>Pkts Total (In)</th><th>Purchased (−)</th><th>Udhaar (−)</th><th>Pkts After</th><th>Weight Total</th><th>Weight After</th></tr></thead><tbody>`;
     rows.forEach((r) => { html += `<tr><td>${esc(r.description)}</td><td>${num(r.totalPlts, 0)}</td><td>${num(r.totalPkts, 0)}</td><td>${num(r.purPkts, 0)}</td><td>${num(r.udPkts, 0)}</td><td>${num(r.availablePkts, 0)}</td><td>${num(r.totalWeight)}</td><td>${num(r.availableWeight)}</td></tr>`; });
     html += `</tbody><tfoot><tr><td>${rows.length} description(s)</td><td>${num(T.plts, 0)}</td><td>${num(T.pkts, 0)}</td><td>${num(T.pur, 0)}</td><td>${num(T.ud, 0)}</td><td>${num(T.av, 0)}</td><td>${num(T.wt)}</td><td>${num(T.wtAv)}</td></tr></tfoot></table>`;
-    printHTML("PKT stock report", html);
+    return html;
   };
   return (
     <div>
-      <SectionHead title="PKT Stock Report (In − Purchase − Udhaar)" onPrint={doPrint} />
+      <SectionHead title="PKT Stock Report (In − Purchase − Udhaar)" onPrint={() => printHTML("PKT stock report", bodyHtml())} onDownload={() => downloadReportFile("PKT Stock Report", bodyHtml())} />
       <div className="filter-bar no-print">
         <Field label="Search"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
         <SortControl value={sort} onChange={setSort} options={[{ value: "description", label: "Description" }, { value: "plts", label: "PLTs" }, { value: "pkts", label: "Pkts Total" }, { value: "purchase", label: "Purchased" }, { value: "udhaar", label: "Udhaar" }, { value: "available", label: "Available" }, { value: "weight", label: "Weight" }]} />
@@ -1651,7 +1756,7 @@ function SaleBaseStockTab({ ctx }) {
   const { pktStock } = ctx;
   const [q, setQ] = useState("");
   const [sort, setSort] = useState({ field: "description", dir: "asc" });
-  if (!ctx.can("canViewReports")) return <LockedNote />;
+  if (!ctx.canModule("stock", "report")) return <LockedNote />;
   const base = pktStock.filter((r) => !q.trim() || r.description.toLowerCase().includes(q.toLowerCase()));
   const getters = {
     description: (r) => r.description, plts: (r) => r.godownPlts, pkts: (r) => r.godownPkts,
@@ -1660,15 +1765,15 @@ function SaleBaseStockTab({ ctx }) {
   };
   const rows = sortRows(base, sort, getters);
   const T = rows.reduce((a, r) => ({ plts: a.plts + r.godownPlts, pkts: a.pkts + r.godownPkts, ud: a.ud + r.udPkts, au: a.au + r.availablePkts, wt: a.wt + r.godownWeight, wa: a.wa + r.availableWeight }), { plts: 0, pkts: 0, ud: 0, au: 0, wt: 0, wa: 0 });
-  const doPrint = () => {
-    let html = `<table><thead><tr><th>Description</th><th>Pkts/PLT</th><th>Current PLTs</th><th>Current PKTs</th><th>Udhaar</th><th>PKTs After Udhaar</th><th>Weight</th><th>Weight After Udhaar</th></tr></thead><tbody>`;
-    rows.forEach((r) => { html += `<tr><td>${esc(r.description)}</td><td>${num(r.pktsPerPlt, 0)}</td><td>${num(r.godownPlts, 0)}</td><td>${num(r.godownPkts, 0)}</td><td>${num(r.udPkts, 0)}</td><td>${num(r.availablePkts, 0)}</td><td>${num(r.godownWeight)}</td><td>${num(r.availableWeight)}</td></tr>`; });
-    html += `</tbody><tfoot><tr><td>${rows.length} description(s)</td><td></td><td>${num(T.plts, 0)}</td><td>${num(T.pkts, 0)}</td><td>${num(T.ud, 0)}</td><td>${num(T.au, 0)}</td><td>${num(T.wt)}</td><td>${num(T.wa)}</td></tr></tfoot></table>`;
-    printHTML("Sale Base Stock", html);
+  const bodyHtml = () => {
+    let html = `<table><thead><tr><th>Description</th><th>Current PLTs</th><th>Current PKTs</th><th>Udhaar</th><th>PKTs After Udhaar</th><th>Weight</th><th>Weight After Udhaar</th></tr></thead><tbody>`;
+    rows.forEach((r) => { html += `<tr><td>${esc(r.description)} <span class="badge">${num(r.pktsPerPlt, 0)}/PLT</span></td><td>${num(r.godownPlts, 0)}</td><td>${num(r.godownPkts, 0)}</td><td>${num(r.udPkts, 0)}</td><td>${num(r.availablePkts, 0)}</td><td>${num(r.godownWeight)}</td><td>${num(r.availableWeight)}</td></tr>`; });
+    html += `</tbody><tfoot><tr><td>${rows.length} description(s)</td><td>${num(T.plts, 0)}</td><td>${num(T.pkts, 0)}</td><td>${num(T.ud, 0)}</td><td>${num(T.au, 0)}</td><td>${num(T.wt)}</td><td>${num(T.wa)}</td></tr></tfoot></table>`;
+    return html;
   };
   return (
     <div>
-      <SectionHead title="Sale Base Stock" onPrint={doPrint} />
+      <SectionHead title="Sale Base Stock" onPrint={() => printHTML("Sale Base Stock", bodyHtml())} onDownload={() => downloadReportFile("Sale Base Stock", bodyHtml())} />
       <div className="info-banner">Current PLTs / PKTs = after purchases (In − Purchased). Weight = weight of current pkts. PKTs After Udhaar = current − udhaar.</div>
       <div className="filter-bar no-print">
         <Field label="Search"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} /></div></Field>
@@ -1701,7 +1806,7 @@ function SaleBaseStockTab({ ctx }) {
 /* ================= DASHBOARD (unchanged interface) ================= */
 function Dashboard({ ctx, setView }) {
   const { pktStock, pktIn, purchases, udhaar, inLabel, puLabel, udLabel } = ctx;
-  const canView = ctx.can("canViewReports");
+  const canView = ctx.canModule("dashboard", "view");
   const T = pktStock.reduce((a, r) => ({ plts: a.plts + r.totalPlts, pkts: a.pkts + r.totalPkts, pur: a.pur + r.purPkts, ud: a.ud + r.udPkts, av: a.av + r.availablePkts, wt: a.wt + r.totalWeight, wtAv: a.wtAv + r.availableWeight }), { plts: 0, pkts: 0, pur: 0, ud: 0, av: 0, wt: 0, wtAv: 0 });
   const purchAmount = purchases.reduce((a, p) => a + N(p.totalAmount), 0);
   if (!canView) return <LockedNote />;
@@ -1823,7 +1928,7 @@ function Dashboard({ ctx, setView }) {
   );
 }
 
-/* ================= TEAM ================= */
+/* ================= TEAM (module permissions) ================= */
 function TeamTab() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1896,7 +2001,7 @@ function TeamTab() {
   return (
     <div>
       <SectionHead title="Team & Access Control" />
-      <div className="info-banner">Admins have full access to everything. For employees, switch on <b>View</b> for each module they can open, then tap the action chips (Add / Edit / Delete / Report) to grant rights inside that module.</div>
+      <div className="info-banner">Admins have full access to everything. For employees, switch on <b>View</b> for each module they can open, then tap the action chips (Add / Edit / Delete / Report) to grant rights inside that module. These permissions are enforced everywhere in the app.</div>
       <div className="team-grid-container">
         {rows.length === 0 && <EmptyRow>No accounts yet.</EmptyRow>}
         {rows.map((r) => {
@@ -2000,7 +2105,7 @@ function LoginScreen({ onAuthed }) {
         <h1 className="login-title">SALE BASE STOCK</h1>
         <div className="login-sub">{mode === "signin" ? "Sign in to continue" : mode === "signup" ? "Create an account" : "Reset your password"}</div>
         {mode === "signup" && <Field label="Full name (optional)"><input name="name" autoComplete="name" value={fullName} onChange={(e) => setFullName(e.target.value)} /></Field>}
-        {<Field label="Email"><input name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>}
+        <Field label="Email"><input name="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         {mode !== "forgot" && <Field label="Password"><input name="password" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} /></Field>}
         {err && <div className="login-error">{err}</div>}
         {notice && <div className="login-notice">{notice}</div>}
@@ -2029,8 +2134,8 @@ export default function PktStockManager() {
     })();
   }, []);
   const signOut = async () => { setAccessToken(null); clearRefreshToken(); setSession(null); };
-  if (booting) return <div className="login-page"><div className="boot-loader"><Loader2 className="spin" size={22} /><span>Checking session...</span></div></div>;
-  if (!session) return <LoginScreen onAuthed={setSession} />;
+  if (booting) return <><Style /><div className="login-page"><div className="boot-loader"><Loader2 className="spin" size={22} /><span>Checking session...</span></div></div></>;
+  if (!session) return <><Style /><LoginScreen onAuthed={setSession} /></>;
   return <AuthedApp session={session} onSignOut={signOut} />;
 }
 function AuthedApp({ session, onSignOut }) {
@@ -2115,11 +2220,21 @@ function AuthedApp({ session, onSignOut }) {
     });
     return next;
   };
+  /* module-level permission check (reads permissions JSONB saved by Team page) */
+  const canModule = (moduleId, action) => {
+    if (!profile) return false;
+    if (profile.role === "admin") return true;
+    const mod = (profile.permissions || {})[moduleId] || {};
+    if (!mod.view) return false;
+    if (action === "view") return true;
+    return mod[action] === true;
+  };
+  const can = (perm) => !!profile && (profile.role === "admin" || profile[perm]);
+  const isAdmin = profile?.role === "admin";
+  const mastersCanManage = canModule("masters", "add") || canModule("masters", "edit");
+  const ctx = { brands, suppliers, descriptions, pktIn, purchases, udhaar, persist, brandName, supplierName, descOf, descLabel, pktWeight, descInUse, pktStock, stockMap, inLabel, puLabel, udLabel, applyUdhaarSettle, applyUdhaarRestore, can, canModule, isAdmin };
   if (loading) return <div className="app-shell loading-shell"><Loader2 className="spin" size={22} /><span>Opening PKT ledger...</span></div>;
   if (loadError) return <div className="app-shell"><div style={{ padding: 24 }}><LockedNote text={loadError} /><button className="btn" style={{ marginTop: 14 }} onClick={onSignOut}>Sign out</button></div></div>;
-  const can = (perm) => !!profile && (profile.role === "admin" || profile[perm]);
-  const isAdmin = profile.role === "admin";
-  const ctx = { brands, suppliers, descriptions, pktIn, purchases, udhaar, persist, brandName, supplierName, descOf, descLabel, pktWeight, descInUse, pktStock, stockMap, inLabel, puLabel, udLabel, applyUdhaarSettle, applyUdhaarRestore, can, isAdmin };
   return (
     <div className="app-shell">
       <Style />
@@ -2132,9 +2247,9 @@ function AuthedApp({ session, onSignOut }) {
           </header>
           <main className="app-main">
             {view === "dashboard" && <Dashboard ctx={ctx} setView={setView} />}
-            {view === "m-brands" && <NameListEditor title="Brands" items={brands} setItems={persist.brands} placeholder="e.g. Ningbo Fold" canManage={can("canManageMasters")} isAdmin={isAdmin} blockedIds={descriptions.map((d) => d.brandId)} />}
-            {view === "m-suppliers" && <NameListEditor title="Suppliers" items={suppliers} setItems={persist.suppliers} withContact placeholder="e.g. Punjab Board Mills" canManage={can("canManageMasters")} isAdmin={isAdmin} blockedIds={pktIn.map((r) => r.supplierId)} />}
-            {view === "m-desc" && <DescriptionsEditor ctx={ctx} canManage={can("canManageMasters")} isAdmin={isAdmin} />}
+            {view === "m-brands" && <NameListEditor title="Brands" items={brands} setItems={persist.brands} placeholder="e.g. Ningbo Fold" canManage={mastersCanManage} isAdmin={isAdmin} blockedIds={descriptions.map((d) => d.brandId)} />}
+            {view === "m-suppliers" && <NameListEditor title="Suppliers" items={suppliers} setItems={persist.suppliers} withContact placeholder="e.g. Punjab Board Mills" canManage={mastersCanManage} isAdmin={isAdmin} blockedIds={pktIn.map((r) => r.supplierId)} />}
+            {view === "m-desc" && <DescriptionsEditor ctx={ctx} canManage={mastersCanManage} isAdmin={isAdmin} />}
             {view === "in-entries" && <PktInEntriesTab ctx={ctx} />}
             {view === "in-report" && <PktInReportView ctx={ctx} />}
             {view === "in-edit" && <PktInEditTab ctx={ctx} />}
@@ -2170,7 +2285,8 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .app-layout{display:flex;min-height:100vh}
 .main-area{flex:1;min-width:0;padding:16px 20px 34px}
 .app-main{max-width:1240px;margin:0 auto}
-/* team & access */
+.download-btn{background:linear-gradient(135deg,#01B574,#2eb872);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(1,181,116,.28)}
+.download-btn:hover{color:#fff;filter:brightness(1.06)}
 .team-grid-container{display:flex;flex-direction:column;gap:16px}
 .team-card{background:#fff;border-radius:18px;box-shadow:var(--shadow);overflow:hidden;border:1px solid var(--line);padding:0}
 .team-card-top{display:flex;align-items:center;gap:14px;padding:16px 20px;background:linear-gradient(180deg,#fbfcff,#fff);border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -2211,7 +2327,6 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .switch input:checked + .switch-track{background:linear-gradient(135deg,var(--blue),var(--blue2))}
 .switch input:checked + .switch-track .switch-thumb{left:19px}
 .switch-label{font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-/* sidebar */
 .rail{width:248px;flex-shrink:0;background:linear-gradient(180deg,#fff 0%,#f7f8ff 100%);border-right:1px solid #e6e8f5;display:flex;flex-direction:column;padding:12px 10px;gap:3px;position:sticky;top:0;height:100vh;z-index:30;box-shadow:4px 0 24px rgba(23,50,77,.06)}
 .rail-top{display:flex;align-items:center;gap:10px;padding:4px 6px 12px;border-bottom:1px solid #eceef8;margin-bottom:8px}
 .rail-logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 8px 18px rgba(67,24,255,.35)}
@@ -2234,7 +2349,6 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .rail-child.active{color:var(--blue);background:var(--blue-soft);font-weight:800;box-shadow:inset 0 0 0 1px rgba(67,24,255,.25)}
 .rail-foot{margin-top:auto;padding-top:8px;border-top:1px solid #eceef8}
 .rail-signout:hover{background:#fdeaea;color:var(--red)}
-/* header */
 .page-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;background:#fff;border-radius:var(--radius);padding:10px 16px;box-shadow:var(--shadow);margin-bottom:12px}
 .page-head h1{font-size:19px;font-weight:800;margin:0;color:var(--navy)}
 .page-sub{color:var(--muted);font-size:11.5px;margin-top:2px;font-weight:600}
@@ -2242,7 +2356,6 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .user-avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center}
 .user-mail{font-size:12px;font-weight:700}
 .user-role{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:800}
-/* generic */
 .section-head{margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .section-head h2{font-weight:800;font-size:15px;margin:0;color:var(--navy)}
 .sub-heading{font-weight:800;font-size:11px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px;letter-spacing:.07em}
@@ -2265,7 +2378,6 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .entry-tag{background:var(--blue-soft);color:var(--blue);padding:3px 8px;border-radius:7px;font-size:10px;font-weight:800}
 .info-banner{background:var(--blue-soft);border:1px solid rgba(67,24,255,.3);color:var(--blue);border-radius:10px;padding:9px 13px;font-size:12px;font-weight:600;margin-bottom:10px}
 .notice-warn{background:#fdf1d7;border:1px solid var(--amber);color:#8a5b00;border-radius:10px;padding:9px 13px;font-size:12px;font-weight:600;margin:8px 0}
-/* forms */
 .ticket-form{background:#fff;border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow)}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .computed{font-size:12.5px;color:var(--muted);font-weight:600}.computed b{color:var(--navy);font-family:'JetBrains Mono',monospace}
@@ -2287,7 +2399,6 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .lines-head{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800}
 .lines-total{display:flex;gap:18px;justify-content:flex-end;flex-wrap:wrap;background:var(--blue-soft);border:1px solid rgba(67,24,255,.25);color:var(--blue);border-radius:10px;padding:9px 14px;font-size:12px;font-weight:800}
 .lines-total .mono{font-family:'JetBrains Mono',monospace}
-/* lists & cards */
 .list{display:flex;flex-direction:column}
 .panel-list{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow);padding:4px 14px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:8px 4px;gap:12px;border-bottom:1px solid var(--line)}
@@ -2304,14 +2415,12 @@ input,textarea,select,button{font-family:inherit;color:var(--text)}
 .entry-card-body{padding:8px 14px 10px;border-top:1px solid var(--line)}
 .entry-date-edit{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .entry-date-edit input,.entry-date-edit select{font-family:'JetBrains Mono',monospace;font-size:12px;padding:5px 7px;border:1px solid var(--line);border-radius:7px}
-/* modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(27,37,89,.45);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px}
 .modal-panel{background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(27,37,89,.35);width:100%;max-width:860px;max-height:88vh;display:flex;flex-direction:column}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
 .modal-head h3{margin:0;font-size:14px;font-weight:800;color:var(--navy)}
 .modal-body{padding:14px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
 .modal-sub{margin:0 0 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:800}
-/* tables */
 .tbl-wrap{overflow-x:auto;border-radius:10px}
 .date-block{margin-bottom:12px}
 .date-block-head{font-family:'JetBrains Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;background:var(--navy);color:#fff;padding:7px 14px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -2329,7 +2438,6 @@ tr.row-hot td{background:#fdf1d7}tr.row-over td{background:#fdeaea}
 .report-grand-total .mono{font-family:'JetBrains Mono',monospace;font-size:13px}
 .empty-row{padding:18px 4px;color:var(--muted);font-size:12.5px;border:1.5px dashed var(--line);border-radius:12px;text-align:center;font-weight:600;background:#fff}
 .locked-panel{display:flex;align-items:flex-start;gap:10px;padding:14px;border:1px solid var(--red);background:#fdeaea;border-radius:12px;color:var(--red);font-size:12.5px;line-height:1.5;font-weight:600}
-/* dashboard */
 .dash-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
 .stat-card{border-radius:12px;padding:12px;color:#fff;display:flex;gap:10px;align-items:center;box-shadow:var(--shadow)}
 .stat-card .ic{width:38px;height:38px;border-radius:10px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -2365,7 +2473,6 @@ tr.row-hot td{background:#fdf1d7}tr.row-over td{background:#fdeaea}
 .ql-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ql-btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px;font-size:11.5px;font-weight:700;color:var(--navy);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px}
 .ql-btn:hover{border-color:var(--blue);color:var(--blue)}
-/* auth */
 .login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;padding:24px;background:var(--bg)}
 .boot-loader{display:flex;align-items:center;gap:10px;color:var(--muted);font-weight:600}
 .login-card{max-width:410px;width:100%;display:flex;flex-direction:column;gap:13px;background:#fff;border-radius:18px;padding:32px 28px;box-shadow:var(--shadow)}
@@ -2376,9 +2483,7 @@ tr.row-hot td{background:#fdf1d7}tr.row-over td{background:#fdeaea}
 .login-notice{font-size:12px;color:#157347;background:#e3f6ec;border:1px solid #157347;border-radius:9px;padding:9px 12px;font-weight:600}
 .login-submit{justify-content:center}
 .login-switch{background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;cursor:pointer;padding:0;text-align:left}
-/* print */
 @media print{.no-print{display:none !important}.rail{display:none !important}.main-area{padding:0}.page-head{box-shadow:none}}
-/* responsive */
 @media (max-width:980px){.dash-cards{grid-template-columns:1fr 1fr}.dash-row{grid-template-columns:1fr}}
 @media (max-width:900px){
 .app-layout{flex-direction:column}
