@@ -67,7 +67,7 @@ const fmtDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { d
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const confirmDelete = (label) => window.confirm(`Delete ${label || "this"}? This can't be undone.`);
 const N = (x) => Number(x || 0);
-const tightDesc = (s) => String(s || "").replace(/\s*[x×]\s*/i, "x").replace(/\s*\/\s*/, "/").replace(/\s+/g, " ").trim();
+const tightDesc = (s) => String(s || "").replace(/\s*[x×*]\s*/i, "*").replace(/\s*\/\s*/, "/").replace(/\s+/g, " ").trim();
 
 function buildSequentialLabelMap(arr, idKey, prefix) {
   const sorted = [...arr].sort((a, b) => {
@@ -428,7 +428,7 @@ function DescPicker({ ctx, value, onChange, placeholder, apiRef }) {
             />
           </div>
           <div className="dp-list">
-            {list.length === 0 && <div className="dp-empty">No matching item — try “20x30” or “270”.</div>}
+            {list.length === 0 && <div className="dp-empty">No matching item — try “20*30” or “270”.</div>}
             {list.map((d) => (
               <button type="button" key={d.id} className="dp-opt" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(d)}>
                 <span className="dp-name">{ctx.descLabel(d)}</span>
@@ -509,7 +509,7 @@ function DescriptionsEditor({ ctx, canManage, isAdmin }) {
   const [f, setF] = useState(blank);
   const [editId, setEditId] = useState(null); const [ef, setEf] = useState(blank);
   useEffect(() => { if (!f.brandId && brands[0]) setF((p) => ({ ...p, brandId: brands[0].id })); }, [brands]); // eslint-disable-line
-  const previewName = f.width && f.length && f.gsm && f.brandId ? `${f.width}x${f.length}/${f.gsm} ${brandName(f.brandId)}` : "";
+  const previewName = f.width && f.length && f.gsm && f.brandId ? `${f.width}*${f.length}/${f.gsm} ${brandName(f.brandId)}` : "";
   const previewW = f.width && f.length && f.gsm ? (N(f.width) * N(f.length) * N(f.gsm)) / 15500 : 0;
   const add = () => {
     if (!previewName || !N(f.pktsPerPlt)) return;
@@ -517,14 +517,14 @@ function DescriptionsEditor({ ctx, canManage, isAdmin }) {
     setF({ ...blank, brandId: f.brandId });
   };
   const saveEdit = () => {
-    const name = `${ef.width}x${ef.length}/${ef.gsm} ${brandName(ef.brandId)}`;
+    const name = `${ef.width}*${ef.length}/${ef.gsm} ${brandName(ef.brandId)}`;
     persist.descriptions(descriptions.map((d) => d.id === editId ? { ...d, brandId: ef.brandId, width: N(ef.width), length: N(ef.length), gsm: N(ef.gsm), pktsPerPlt: N(ef.pktsPerPlt), note: ef.note.trim(), active: ef.active, description: name, weightPerPkt: (N(ef.width) * N(ef.length) * N(ef.gsm)) / 15500 } : d));
     setEditId(null);
   };
   return (
     <div>
       <SectionHead title="PKT Description Master" />
-      <div className="info-banner">Name = <b>Width x Length / GSM + Brand</b>. Packet weight auto = (W x L x GSM) / 15500 kg.</div>
+      <div className="info-banner">Name = <b>Width*Length / GSM + Brand</b>. Packet weight auto = (W x L x GSM) / 15500 kg.</div>
       {canManage && (
         <div className="ticket-form">
           <div className="grid-2">
@@ -2176,7 +2176,7 @@ function AuthedApp({ session, onSignOut }) {
   const brandName = (id) => brands.find((b) => b.id === id)?.name || "—";
   const supplierName = (id) => suppliers.find((s) => s.id === id)?.name || "—";
   const descOf = (id) => descriptions.find((d) => d.id === id);
-  const descLabel = (d) => d ? `${d.width}x${d.length}/${d.gsm} ${brandName(d.brandId)}` : "—";
+  const descLabel = (d) => d ? `${d.width}*${d.length}/${d.gsm} ${brandName(d.brandId)}` : "—";
   const pktWeight = (d) => d ? (N(d.width) * N(d.length) * N(d.gsm)) / 15500 : 0;
   const descInUse = useMemo(() => new Set([...pktIn.map((x) => x.descriptionId), ...purchases.map((x) => x.descriptionId), ...udhaar.map((x) => x.descriptionId)]), [pktIn, purchases, udhaar]);
   const pktStock = useMemo(() => calculatePktStock({ descriptions, pktIn, purchases, udhaar, descLabel }), [descriptions, pktIn, purchases, udhaar, brands]); // eslint-disable-line
