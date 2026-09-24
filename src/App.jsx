@@ -96,6 +96,30 @@ const sortRows = (rows, sort, getters) => {
   return [...rows].sort((a, b) => { const va = g(a), vb = g(b); if (typeof va === "string") return va.localeCompare(vb) * dir; return (va - vb) * dir; });
 };
 
+// Settlement allocations are separate from the quantities and dates entered by the user.
+const udhaarSettledPkts = (u) => Object.values(u.settlements || {}).reduce((sum, pkts) => sum + N(pkts), 0);
+const udhaarBalancePkts = (u) => Math.max(0, N(u.totalPkts) - udhaarSettledPkts(u));
+const udhaarBalanceWeight = (u) => N(u.totalPkts) > 0 ? N(u.weight) * udhaarBalancePkts(u) / N(u.totalPkts) : 0;
+function settleUdhaar(udArr, lines) {
+  let next = udArr.map((u) => ({ ...u, settlements: { ...(u.settlements || {}) } }));
+  const settledMap = {};
+  lines.forEach((ln) => {
+    let remaining = Math.max(0, N(ln.totalPkts));
+    let settled = 0;
+    // Oldest entries first; never reorder or remove the saved entries.
+    const candidates = next.filter((u) => u.descriptionId === ln.descriptionId)
+      .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.createdAt || "").localeCompare(b.createdAt || "") || a.id.localeCompare(b.id));
+    candidates.forEach((u) => {
+      const take = Math.min(udhaarBalancePkts(u), remaining);
+      if (take <= 0) return;
+      u.settlements[ln.id] = N(u.settlements[ln.id]) + take;
+      remaining -= take; settled += take;
+    });
+    settledMap[ln.id] = settled;
+  });
+  return { next, settledMap };
+}
+
 /* ================= stock engine (In − Purchase − Udhaar) ================= */
 function calculatePktStock({ descriptions, pktIn, purchases, udhaar, descLabel }) {
   const rows = new Map();
@@ -111,7 +135,7 @@ function calculatePktStock({ descriptions, pktIn, purchases, udhaar, descLabel }
   };
   pktIn.forEach((t) => { const r = ensure(t.descriptionId, t.descriptionSnapshot); r.inPlts += N(t.plts); r.inPkts += N(t.totalPkts); r.inWeight += N(t.weight); });
   purchases.forEach((t) => { const r = ensure(t.descriptionId, t.descriptionSnapshot); r.purPlts += N(t.plts); r.purPkts += N(t.totalPkts); r.purWeight += N(t.weight); r.purAmount += N(t.totalAmount); });
-  udhaar.forEach((t) => { const r = ensure(t.descriptionId, t.descriptionSnapshot); r.udPlts += N(t.plts); r.udPkts += N(t.totalPkts); r.udWeight += N(t.weight); });
+  udhaar.forEach((t) => { const r = ensure(t.descriptionId, t.descriptionSnapshot); const pkts = udhaarBalancePkts(t), pp = N(t.pktsPerPltSnapshot); r.udPlts += pp ? Math.floor(pkts / pp) : 0; r.udPkts += pkts; r.udWeight += udhaarBalanceWeight(t); });
   return [...rows.values()].map((r) => ({
     ...r,
     totalPlts: r.inPlts, totalPkts: r.inPkts, totalWeight: r.inWeight,
@@ -964,7 +988,7 @@ function PurchaseAddForm({ ctx }) {
       return { id: uid(), batchId, date, descriptionId: d.id, descriptionSnapshot: ctx.descLabel(d), pktsPerPltSnapshot: N(d.pktsPerPlt), weightPerPktSnapshot: ctx.pktWeight(d), plts: l.plts, loosePkts: l.loose, totalPkts: l.total, weight: l.weight, rate: l.rate, rateBasis: "kg", totalAmount: l.amount, udhaarSettled: 0, note: "" };
     });
     const { next, settledMap } = ctx.applyUdhaarSettle(ctx.udhaar, recs);
-    recs = recs.map((r) => ({ ...r, udhaarSettled: settledMap[r.descriptionId] || 0 }));
+    recs = recs.map((r) => ({ ...r, udhaarSettled: settledMap[r.id] || 0 }));
     await persist.purchases([...purchases, ...recs]);
     if (Object.keys(settledMap).length) await persist.udhaar(next);
     setLast(batchId); setLines([]);
@@ -1047,7 +1071,7 @@ function ManagePuModal({ ctx, batch, onClose }) {
     let ud = ctx.udhaar;
     if (removed.length) ud = ctx.applyUdhaarRestore(ud, removed);
     const { next, settledMap } = newBase.length ? ctx.applyUdhaarSettle(ud, newBase) : { next: ud, settledMap: {} };
-    const newRecs = newBase.map((r) => ({ ...r, udhaarSettled: settledMap[r.descriptionId] || 0 }));
+    const newRecs = newBase.map((r) => ({ ...r, udhaarSettled: settledMap[r.id] || 0 }));
     const others = purchases.filter((r) => r.batchId !== batch.batchId);
     await persist.purchases([...others, ...lines, ...newRecs]);
     if (JSON.stringify(next) !== JSON.stringify(ctx.udhaar)) await persist.udhaar(next);
@@ -1099,8 +1123,8 @@ function PurchaseEditTab({ ctx }) {
     const weight = total * N(ef.weightPerPktSnapshot);
     let ud = ctx.udhaar;
     if (oldLine && N(oldLine.udhaarSettled) > 0) ud = ctx.applyUdhaarRestore(ud, [oldLine]);
-    const { next, settledMap } = ctx.applyUdhaarSettle(ud, [{ descriptionId: oldLine.descriptionId, totalPkts: total }]);
-    const settled = settledMap[oldLine.descriptionId] || 0;
+    const { next, settledMap } = ctx.applyUdhaarSettle(ud, [{ id: oldLine.id, descriptionId: oldLine.descriptionId, totalPkts: total }]);
+    const settled = settledMap[oldLine.id] || 0;
     await persist.purchases(purchases.map((r) => r.id === editId ? { ...r, date: ef.date, plts: N(ef.plts), loosePkts: N(ef.loosePkts), totalPkts: total, weight, rate: N(ef.rate), totalAmount: weight * N(ef.rate), udhaarSettled: settled } : r));
     if (JSON.stringify(next) !== JSON.stringify(ctx.udhaar)) await persist.udhaar(next);
     setEditId(null);
@@ -1246,7 +1270,7 @@ function UdhaarAddForm({ ctx }) {
   const [lines, setLines] = useState([]);
   const [last, setLast] = useState(null);
   const [err, setErr] = useState("");
-  const balFor = (id) => udhaar.filter((u) => u.descriptionId === id).reduce((a, u) => a + N(u.totalPkts), 0);
+  const balFor = (id) => udhaar.filter((u) => u.descriptionId === id).reduce((a, u) => a + udhaarBalancePkts(u), 0);
   const pendingFor = (id) => lines.filter((l) => l.descriptionId === id).reduce((a, l) => a + l.pkts, 0);
   const addLine = (l) => {
     const godown = stockMap.get(l.descriptionId)?.godownPkts || 0;
@@ -1331,7 +1355,7 @@ function UdhaarEntriesTab({ ctx }) {
     <div>
       <SectionHead title="Add udhaar entry" />
       {canAdd ? <UdhaarAddForm ctx={ctx} /> : <LockedNote />}
-      <h3 className="sub-heading">All udhaar entries (view only — edit in Edit)</h3>
+      <h3 className="sub-heading">All udhaar entries (original quantities — edit in Edit)</h3>
       {batches.length === 0 && <EmptyRow>No udhaar entries yet.</EmptyRow>}
       {batches.map((b) => {
         const open = expanded === b.key;
@@ -1366,8 +1390,8 @@ function ManageUdhaarModal({ ctx, batch, onClose }) {
   const [adds, setAdds] = useState([]);
   const [err, setErr] = useState("");
   const inBatch = new Set(batch.lines.map((l) => l.id));
-  const otherBal = (id) => udhaar.filter((u) => u.descriptionId === id && !inBatch.has(u.id)).reduce((a, u) => a + N(u.totalPkts), 0);
-  const keptBal = (id) => lines.filter((l) => l.descriptionId === id).reduce((a, l) => a + N(l.totalPkts), 0);
+  const otherBal = (id) => udhaar.filter((u) => u.descriptionId === id && !inBatch.has(u.id)).reduce((a, u) => a + udhaarBalancePkts(u), 0);
+  const keptBal = (id) => lines.filter((l) => l.descriptionId === id).reduce((a, l) => a + udhaarBalancePkts(l), 0);
   const addBal = (id) => adds.filter((l) => l.descriptionId === id).reduce((a, l) => a + l.pkts, 0);
   const addLine = (l) => {
     const godown = stockMap.get(l.descriptionId)?.godownPkts || 0;
@@ -1445,6 +1469,8 @@ function UdhaarEditTab({ ctx }) {
   const saveRow = () => {
     const pp = N(ef.pktsPerPltSnapshot), wpp = N(ef.weightPerPktSnapshot);
     const pkts = N(ef.pkts);
+    const original = udhaar.find((r) => r.id === editId);
+    if (pkts < udhaarSettledPkts(original || {})) { alert("Quantity cannot be less than the already settled PKTs. Edit the purchase first."); return; }
     persist.udhaar(udhaar.map((r) => r.id === editId ? {
       ...r, date: ef.date, note: ef.note,
       plts: pp ? Math.floor(pkts / pp) : 0, loosePkts: pp ? pkts % pp : pkts, totalPkts: pkts, weight: pkts * wpp,
@@ -1534,7 +1560,7 @@ function UdhaarTableView({ ctx }) {
     const m = new Map();
     udhaar.forEach((u) => {
       const cur = m.get(u.descriptionId) || { pkts: 0, weight: 0, date: u.date };
-      cur.pkts += N(u.totalPkts); cur.weight += N(u.weight);
+      cur.pkts += udhaarBalancePkts(u); cur.weight += udhaarBalanceWeight(u);
       if ((u.date || "") > (cur.date || "")) cur.date = u.date;
       m.set(u.descriptionId, cur);
     });
@@ -1559,12 +1585,19 @@ function UdhaarTableView({ ctx }) {
     const pk = plts * N(d.pktsPerPlt) + loose;
     const godown = stockMap.get(d.id)?.godownPkts || 0;
     if (pk > godown) { setErr(`${descLabel(d)}: udhaar ${num(pk, 0)} pkts exceeds godown stock ${num(godown, 0)} pkts (In − Purchased).`); return; }
-    const rest = udhaar.filter((u) => u.descriptionId !== d.id);
-    const next = pk > 0 ? [...rest, {
-      id: uid(), batchId: null, date: todayISO(), partyName: null, reference: null,
-      descriptionId: d.id, descriptionSnapshot: descLabel(d), pktsPerPltSnapshot: N(d.pktsPerPlt), weightPerPktSnapshot: pktWeight(d),
-      plts, loosePkts: loose, totalPkts: pk, weight: pk * pktWeight(d), note: "adjusted in table",
-    }] : rest;
+    if (pk < 0) { setErr("Udhaar cannot be negative."); return; }
+    const current = balMap.get(d.id)?.pkts || 0;
+    let next = udhaar;
+    if (pk < current) {
+      next = settleUdhaar(udhaar, [{ id: `adjustment-${uid()}`, descriptionId: d.id, totalPkts: current - pk }]).next;
+    } else if (pk > current) {
+      const add = pk - current, pp = N(d.pktsPerPlt), full = pp ? Math.floor(add / pp) : 0;
+      next = [...udhaar, {
+        id: uid(), batchId: null, date: todayISO(), partyName: null, reference: null,
+        descriptionId: d.id, descriptionSnapshot: descLabel(d), pktsPerPltSnapshot: pp, weightPerPktSnapshot: pktWeight(d),
+        plts: full, loosePkts: add - full * pp, totalPkts: add, weight: add * pktWeight(d), note: "adjusted in table", settlements: {},
+      }];
+    }
     persist.udhaar(next);
     setDraft({ ...draft, [d.id]: { plts: pk ? String(plts) : "", loose: pk ? String(loose) : "" } });
     setSavedId(d.id); setTimeout(() => setSavedId(null), 1500);
@@ -1572,7 +1605,7 @@ function UdhaarTableView({ ctx }) {
   return (
     <div>
       <SectionHead title="Udhaar table — set balance per item" />
-      <div className="info-banner">Balances come from udhaar entries (In − Purchased cap applies). Amber = udhaar more than one PLT (with pallet suggestion). Red = over godown. Setting 0 clears udhaar. Purchases auto-settle udhaar; deleting them returns it.</div>
+      <div className="info-banner">Balances come from udhaar entries (In − Purchased cap applies). Amber = udhaar more than one PLT (with pallet suggestion). Red = over godown. Setting 0 settles the balance. Original entries stay unchanged. Purchases auto-settle udhaar; deleting them returns it.</div>
       <div className="filter-bar no-print">
         <Field label="Search item"><div className="search-input"><Search size={13} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="description..." /></div></Field>
         <Field label="Filter">
@@ -1626,9 +1659,9 @@ function UdhaarReportView({ ctx }) {
   const balMap = useMemo(() => {
     const m = new Map();
     udhaar.forEach((u) => {
-      if (N(u.totalPkts) <= 0) return;
+      if (udhaarBalancePkts(u) <= 0) return;
       const cur = m.get(u.descriptionId) || { pkts: 0, weight: 0, date: u.date, perPlt: N(u.pktsPerPltSnapshot) };
-      cur.pkts += N(u.totalPkts); cur.weight += N(u.weight);
+      cur.pkts += udhaarBalancePkts(u); cur.weight += udhaarBalanceWeight(u);
       if ((u.date || "") > (cur.date || "")) cur.date = u.date;
       m.set(u.descriptionId, cur);
     });
@@ -2184,39 +2217,27 @@ function AuthedApp({ session, onSignOut }) {
   const inLabel = useMemo(() => buildSequentialLabelMap(pktIn, "batchId", "PI"), [pktIn]);
   const puLabel = useMemo(() => buildSequentialLabelMap(purchases, "batchId", "PP"), [purchases]);
   const udLabel = useMemo(() => buildSequentialLabelMap(udhaar, "batchId", "UD"), [udhaar]);
-  const applyUdhaarSettle = (udArr, lines) => {
-    let next = udArr.map((u) => ({ ...u }));
-    const settledMap = {};
-    lines.forEach((ln) => {
-      const d = descOf(ln.descriptionId); const perPlt = d ? N(d.pktsPerPlt) : 0; const wpp = d ? pktWeight(d) : 0;
-      let remaining = N(ln.totalPkts); let settled = 0;
-      next = next.map((u) => {
-        if (u.descriptionId !== ln.descriptionId || remaining <= 0) return u;
-        const cur = N(u.totalPkts);
-        const take = Math.min(cur, remaining);
-        remaining -= take; settled += take;
-        const rem = cur - take;
-        const plts = perPlt ? Math.floor(rem / perPlt) : 0;
-        return { ...u, plts, loosePkts: rem - plts * perPlt, totalPkts: rem, weight: rem * wpp, date: todayISO() };
-      });
-      settledMap[ln.descriptionId] = (settledMap[ln.descriptionId] || 0) + settled;
-    });
-    next = next.filter((u) => N(u.totalPkts) > 0);
-    return { next, settledMap };
-  };
+  const applyUdhaarSettle = settleUdhaar;
   const applyUdhaarRestore = (udArr, lines) => {
-    let next = udArr.map((u) => ({ ...u }));
+    const next = udArr.map((u) => ({ ...u, settlements: { ...(u.settlements || {}) } }));
     lines.forEach((ln) => {
-      const add = N(ln.udhaarSettled); if (!add) return;
-      const d = descOf(ln.descriptionId); const perPlt = d ? N(d.pktsPerPlt) : 0; const wpp = d ? pktWeight(d) : 0;
-      const idx = next.findIndex((u) => u.descriptionId === ln.descriptionId);
-      if (idx >= 0) {
-        const u = next[idx]; const rem = N(u.totalPkts) + add; const plts = perPlt ? Math.floor(rem / perPlt) : 0;
-        next[idx] = { ...u, plts, loosePkts: rem - plts * perPlt, totalPkts: rem, weight: rem * wpp, date: todayISO() };
-      } else {
-        const plts = perPlt ? Math.floor(add / perPlt) : 0;
-        next.push({ id: uid(), batchId: null, date: todayISO(), partyName: null, reference: null, descriptionId: ln.descriptionId, descriptionSnapshot: d ? descLabel(d) : "", pktsPerPltSnapshot: perPlt, weightPerPktSnapshot: wpp, plts, loosePkts: add - plts * perPlt, totalPkts: add, weight: add * wpp, note: "" });
-      }
+      let restored = 0;
+      next.forEach((u) => {
+        restored += N(u.settlements[ln.id]);
+        delete u.settlements[ln.id];
+      });
+      // Purchases from the old app have no allocations: preserve existing
+      // entries and record their returned balance as a separate recovery entry.
+      const add = Math.max(0, N(ln.udhaarSettled) - restored);
+      if (!add) return;
+      const d = descOf(ln.descriptionId);
+      const perPlt = d ? N(d.pktsPerPlt) : N(ln.pktsPerPltSnapshot);
+      const wpp = d ? pktWeight(d) : N(ln.weightPerPktSnapshot);
+      const plts = perPlt ? Math.floor(add / perPlt) : 0;
+      next.push({ id: uid(), batchId: null, date: todayISO(), partyName: null, reference: "Legacy purchase settlement restored",
+        descriptionId: ln.descriptionId, descriptionSnapshot: d ? descLabel(d) : ln.descriptionSnapshot,
+        pktsPerPltSnapshot: perPlt, weightPerPktSnapshot: wpp, plts, loosePkts: add - plts * perPlt,
+        totalPkts: add, weight: add * wpp, note: "Original entry details were not retained by the previous app.", settlements: {} });
     });
     return next;
   };
